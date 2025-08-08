@@ -34,7 +34,7 @@ export default function HeroSection() {
                 <Button
                   variant="outline"
                   size="lg"
-                  className="border-2 border-white text-white hover:bg-white hover:text-petrol-500 px-8 py-4 rounded-full font-semibold transition-all duration-300"
+                  className="border-2 border-white text-white hover:bg-white hover:text-petrol-500 text-[#1c3747] px-8 py-4 rounded-full font-semibold transition-all duration-300"
                 >
                   Ver Coleções
                 </Button>
