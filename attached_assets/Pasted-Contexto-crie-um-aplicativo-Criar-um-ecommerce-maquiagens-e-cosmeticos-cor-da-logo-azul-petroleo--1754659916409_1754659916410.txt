@@ -1,0 +1,294 @@
+Contexto: crie um aplicativo Criar um ecommerce maquiagens e cosmeticos, cor da logo azul petroleo, tem que ter um painel admin com sistema financeiro completo, a pagina inicial não vai ter integração com pagamento, vai ser direcionado ao whatsapp
+
+
+Descrição do Projeto:
+Contexto: crie um aplicativo de Criar um ecommerce maquiagens e cosmeticos, cor da logo azul petroleo, tem que ter um painel admin com sistema financeiro completo, a pagina inicial não vai ter integração com pagamento, vai ser direcionado ao whatsapp
+
+
+Descrição do Projeto:
+Este projeto consiste no desenvolvimento de um aplicativo inovador que visa crie um aplicativo de Criar um ecommerce maquiagens e cosmeticos, cor da logo azul petroleo, tem que ter um painel admin com sistema financeiro completo, a pagina inicial não vai ter integração com pagamento, vai ser direcionado ao whatsapp
+. A solução será desenvolvida com foco em proporcionar uma experiência excepcional ao usuário, combinando design moderno, funcionalidades intuitivas e alta performance.
+
+O aplicativo será construído utilizando React/Next.js com TypeScript e estilizado com Tailwind CSS para garantir uma interface moderna, responsiva e altamente personalizável. A solução seguirá as melhores práticas de desenvolvimento, garantindo escalabilidade, segurança e facilidade de manutenção. A interface será responsiva e adaptável a diferentes dispositivos, oferecendo uma experiência consistente em todas as plataformas.
+
+Objetivo Principal:
+Este projeto visa desenvolver um aplicativo completo e profissional para crie um aplicativo de Criar um ecommerce maquiagens e cosmeticos, cor da logo azul petroleo, tem que ter um painel admin com sistema financeiro completo, a pagina inicial não vai ter integração com pagamento, vai ser direcionado ao whatsapp
+. A solução será desenvolvida com foco em proporcionar uma experiência excepcional ao usuário, garantindo facilidade de uso, performance e segurança.
+
+Sistema de Temas:
+
+1. Tema Claro (Light Mode):
+   Cores Principais:
+   - Fundo Principal: #FFFFFF
+   - Fundo Secundário: #F8FAFC
+   - Texto Principal: #1E293B
+   - Texto Secundário: #64748B
+   - Primária: #3B82F6
+   - Secundária: #10B981
+   - Accent: #8B5CF6
+   - Bordas: #E2E8F0
+   - Sombras: rgba(0, 0, 0, 0.1)
+
+2. Tema Escuro (Dark Mode):
+   Cores Principais:
+   - Fundo Principal: #0F172A
+   - Fundo Secundário: #1E293B
+   - Texto Principal: #F8FAFC
+   - Texto Secundário: #CBD5E1
+   - Primária: #60A5FA
+   - Secundária: #34D399
+   - Accent: #A78BFA
+   - Bordas: #334155
+   - Sombras: rgba(0, 0, 0, 0.25)
+
+Contraste e Acessibilidade:
+- Todas as cores foram selecionadas para manter uma relação de contraste mínima de 4.5:1
+- Elementos interativos têm contraste aumentado
+- Indicadores visuais de foco são claros em ambos os temas
+- Estados hover e active têm variações de cor perceptíveis
+- Textos mantêm legibilidade em todos os fundos
+
+Transição entre Temas:
+- Animação suave de 0.3s
+- Transição de cores com timing-function: ease-in-out
+- Persistência da preferência do usuário
+- Respeito às configurações do sistema
+- Alternância via ícone na barra de navegação
+
+Principais Benefícios:
+- Interface moderna e intuitiva
+- Sistema completo de autenticação e autorização
+- Dashboard personalizado para cada usuário
+- Relatórios e análises em tempo real
+- Integração com APIs externas quando necessário
+- Suporte a múltiplos dispositivos e plataformas
+- Backup automático de dados
+- Sistema de notificações em tempo real
+
+IMPORTANTE: Para agilizar o desenvolvimento inicial e permitir testes rápidos, o sistema de login está configurado para aceitar qualquer email/senha, sem necessidade de banco de dados. Isso permite que você teste e valide o fluxo completo do aplicativo imediatamente. A integração com banco de dados pode ser implementada posteriormente.
+
+Estrutura do Aplicativo:
+
+Páginas e Rotas:
+/login: Página de autenticação (aceita qualquer email/senha para teste)
+/register: Cadastro de usuários (registro automático para teste)
+/dashboard: Área principal após login
+/profile: Perfil do usuário
+/settings: Configurações
+
+Componentes da Interface:
+
+Login (/login):
+- Campo de email com validação
+- Campo de senha com toggle de visibilidade
+- Botão "Lembrar-me"
+- Link para recuperação de senha
+- Botão de login com efeito de loading
+- Opção de login com Google/GitHub
+- Link para página de registro
+
+Registro (/register):
+- Campos: nome, email, senha, confirmar senha
+- Checkbox para aceitar termos
+- Validação em tempo real
+- Feedback visual de força da senha
+- Botão de registro com loading state
+
+Dashboard (/dashboard):
+- Sidebar responsiva com navegação
+- Header com perfil e notificações
+- Cards de estatísticas com animações
+- Lista de atividades recentes
+- Gráficos interativos
+
+Design System:
+
+Cores principais:
+- Primária: #3B82F6 (azul)
+- Secundária: #10B981 (verde)
+- Accent: #8B5CF6 (roxo)
+
+Tipografia:
+- Títulos: Inter (bold)
+- Texto: Inter (regular)
+- Sombras e elevação
+- Bordas arredondadas: 8px-12px
+- Animações suaves: 0.2s ease-in-out
+
+Imagens Recomendadas (Gratuitas):
+
+Unsplash:
+- Background login: "minimal office desk setup"
+- Avatares: "professional headshots"
+- Icons: "minimal tech icons"
+
+Undraw.co:
+- Ilustrações para páginas vazias
+- Gráficos decorativos
+- Ícones de features
+
+Recursos de UI/UX:
+- Feedback visual em todas ações
+- Tooltips informativos
+- Skeleton loading states
+- Mensagens de erro amigáveis
+- Micro-interações em botões
+- Dark/Light mode toggle
+
+Animações:
+- Fade-in ao carregar páginas
+- Slide-in para sidebars
+- Scale + fade para modais
+- Pulse para notificações
+- Shimmer para loading states
+
+Responsividade:
+- Mobile: 320px - 480px
+- Tablet: 481px - 768px
+- Desktop: 769px+
+- Layout adaptativo
+- Menu hamburguer em mobile
+- Grid responsivo para cards
+
+Segurança Visual:
+- Feedback de força de senha
+- Captcha em formulários
+- 2FA com código por email
+- Timeout de sessão
+- Alertas de login suspeito
+
+Observação: Comece implementando a página de login (que aceita qualquer credencial), depois o registro, e então o dashboard. Use Tailwind CSS para estilização rápida e consistente.
+
+=== Estrutura do Aplicativo ===
+
+1. Sistema de Autenticação:
+   - Login simplificado (email/senha)
+   - Cadastro rápido
+   - Perfil personalizado
+   - Configurações do usuário
+   - Recuperação de senha
+   - Autenticação social
+   - Verificação em duas etapas
+   - Sessões simultâneas
+   - Logout automático
+   - Histórico de acesso
+
+2. Features Específicas:
+- Sistema de notificações
+- Filtros e pesquisa avançada
+- Histórico de atividades
+- Configurações personalizadas
+- Relatórios e análises
+- Perfil do usuário
+- Feed de atualizações
+- Chat integrado
+- Backup automático
+- Temas personalizáveis
+
+3. Interface Principal:
+   - Dashboard personalizado
+   - Navegação intuitiva
+   - Área de notificações
+   - Menu responsivo
+   - Temas claro/escuro
+   - Modo noturno
+   - Acessibilidade
+   - Animações suaves
+   - Feedback visual
+   - Tooltips informativos
+
+4. Design System:
+   - Cores adaptadas ao nicho
+   - Tipografia moderna
+   - Ícones personalizados
+   - Animações suaves
+   - Componentes reutilizáveis
+   - Grid responsivo
+   - Layouts adaptáveis
+   - Espaçamento consistente
+   - Sombras e efeitos
+   - Transições fluidas
+
+5. Recursos Mobile:
+   - Design mobile-first
+   - Gestos e toques otimizados
+   - Performance otimizada
+   - Notificações push
+   - Modo offline
+   - Cache inteligente
+   - Geolocalização
+   - Câmera e galeria
+   - Biometria
+   - Push notifications
+
+6. Elementos de Interface:
+   - Loading states
+   - Feedback visual
+   - Tooltips informativos
+   - Modais interativos
+   - Forms otimizados
+   - Cards animados
+   - Tabelas responsivas
+   - Gráficos interativos
+   - Sliders e carrosséis
+   - Dropdowns personalizados
+
+7. Recursos Extras:
+   - Compartilhamento social
+   - Exportação de dados
+   - Backups automáticos
+   - Suporte multilíngue
+   - Tutorial interativo
+   - Documentação online
+   - FAQ dinâmico
+   - Chat de suporte
+   - Blog integrado
+   - Newsletter
+
+8. Tecnologias Base:
+   - Frontend moderno (React/Next.js)
+   - Sistema de estilos (Tailwind CSS)
+   - Sistema de animações
+   - Sistema de ícones
+   - Sistema de formulários
+   - Sistema de validação
+   - Gerenciamento de estado
+   - Sistema de requisições
+   - Sistema de testes
+   - Sistema de deploy
+
+9. Estilização e UI:
+   - Tailwind CSS para estilização moderna e responsiva
+   - Componentes reutilizáveis com Tailwind
+   - Sistema de cores personalizável
+   - Utilitários de layout flexíveis
+   - Animações e transições suaves
+   - Responsividade mobile-first
+   - Temas claro/escuro
+   - Acessibilidade integrada
+   - Performance otimizada
+   - Consistência visual em toda a aplicação
+
+10. Stack Tecnológica:
+    - React/Next.js para estrutura e componentes
+    - TypeScript para tipagem e segurança
+    - Tailwind CSS para estilização
+    - Next.js App Router para roteamento
+    - React Server Components
+    - API Routes para backend
+    - Middleware para autenticação
+    - Context API para estado global
+    - React Query para data fetching
+    - Next.js Image para otimização
+
+11. Boas Práticas:
+    - Componentes reutilizáveis
+    - Tipagem forte com TypeScript
+    - Estilização consistente com Tailwind
+    - Performance otimizada
+    - SEO friendly
+    - Acessibilidade (WCAG)
+    - Testes automatizados
+    - Documentação clara
+    - Código limpo e organizado
+    - Versionamento semântico

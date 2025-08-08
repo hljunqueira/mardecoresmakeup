@@ -1,0 +1,93 @@
+I want to build a web e-commerce catalog platform that helps beauty and cosmetics lovers discover and explore curated makeup and skincare products from the brand “Mar de Cores”. It should feel elegant, modern, and luxurious, and be optimized for web and mobile. The admin should have full control of product uploads, collections, coupons, and a complete financial dashboard.
+
+Project Name:
+Mar de Cores
+
+Target Audience:
+• Amantes de maquiagem e cosméticos
+• Mulheres que valorizam beleza, qualidade e sofisticação
+• Usuários que acompanham tendências e lançamentos
+
+Core Features and Pages:
+✅ Homepage
+• Hero com carrossel de banners promocionais
+• Produtos em destaque (ex: "Tudo por R$10")
+• Links rápidos para coleções sazonais
+• Seção institucional com storytelling da marca
+• Paleta visual com azul petróleo #1a324a, dourado #d4af37 e tons claros
+
+✅ Catálogo de Produtos (/products)
+• Grid de produtos com imagem, nome, preço
+• Botão “Fale conosco” para consulta ou compra direta
+• Filtros inteligentes: categoria, preço, tipo de pele, cor
+• Busca com autocomplete
+• Avaliações e comentários de clientes
+
+✅ Coleções Promocionais (/collections)
+• Listagem de campanhas temáticas e sazonais
+• Página individual com produtos agrupados por coleção
+• Exemplo: “Tudo por R$10”, “Glow Inverno”, “Top 10 Favoritos”
+
+✅ Página de Produto (/product/[slug])
+• Galeria de imagens
+• Nome, descrição, tags, preço
+• Avaliações de usuários
+• Produtos similares
+• Botão “Fale conosco”
+
+✅ Página de Contato (/contact)
+• Formulário com validação
+• Link direto para WhatsApp
+• Informações de atendimento
+
+✅ Painel Administrativo (/admin)
+🔐 Login de administrador (email/senha)
+📦 Produtos:
+• Cadastro com drag-and-drop para imagens
+• Nome, descrição, preço, tags, estoque
+• Marcar como “destaque” ou parte de coleção
+
+🎁 Cupons:
+• Criar e gerenciar cupons de desconto (valor fixo ou percentual)
+• Definir validade e status ativo/inativo
+
+🛍️ Coleções:
+• Criar campanhas promocionais
+• Agrupar produtos em coleções temáticas
+• Definir imagem de capa e descrição
+
+📈 Módulo Financeiro Completo:
+• Dashboard financeiro: visão geral, vendas, despesas e saldo
+• Contas a Receber: pedidos simulados, status e filtros
+• Contas a Pagar: despesas fixas/variáveis, vencimento, status
+• Controle de Fornecedores: cadastro, histórico, contatos
+• Fluxo de Caixa: entradas e saídas por dia/mês com gráficos
+• Relatórios Exportáveis: CSV/PDF de vendas, despesas e balanço
+• Preparado para integração futura com Stripe, Mercado Pago etc.
+
+Tech Stack (Recommended Defaults):
+• Frontend: Next.js (App Router), React, TypeScript, Tailwind CSS
+• UI Components: Aceternity UI + 21st.dev
+• State Management: Zustand ou Context API
+• Data: Mocked JSON para produtos e transações
+• Auth (Admin only): Login por email/senha simples
+• Futuro: Stripe ou PagSeguro no painel admin
+
+Design Preferences:
+• Font: Inter
+• Colors:
+
+Primária: Azul Petróleo #1a324a
+
+Destaque: Dourado #d4af37
+
+Apoio: Branco e bege claro
+• Layout: Mobile-first, com design elegante, leve e moderno
+• UI com bordas suaves, animações finas, microinterações e feedbacks visuais
+• Dark/Light mode com alternância persistente
+• Utilização de componentes do Aceternity UI e 21st.dev para máxima estética e produtividade
+
+Optional AI Feature (future):
+• Chatbot de consultoria de beleza personalizado
+• Recomendações inteligentes por tipo de pele e preferências
+
