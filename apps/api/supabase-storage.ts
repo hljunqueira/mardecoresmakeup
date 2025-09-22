@@ -40,7 +40,7 @@ if (process.env.NODE_ENV === 'production') {
   console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
-// Configuração do Drizzle com PostgreSQL - com múltiplas estratégias de conexão
+// Configuração do Drizzle com PostgreSQL - sistema de fallback múltiplo
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
@@ -54,50 +54,57 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// SOLUÇÃO AVANÇADA: Múltiplas estratégias de conexão para Railway
-let connectionConfigs: any[] = [];
+// SOLUÇÃO AVANÇADA: URLs de fallback para Railway
+let connectionConfigs: { name: string; url: string; options: any }[] = [];
 
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Configurando múltiplas estratégias de conexão para Railway...');
+  console.log('🔧 Configurando múltiplas estratégias anti-IPv6 para Railway...');
   
-  // Estratégia 1: Supabase Connection Pooler (porta 6543)
-  const poolerUrl = databaseUrl.replace(':5432/', ':6543/');
+  // Estratégia 1: IP direto IPv4 do Supabase Pooler
   connectionConfigs.push({
-    name: 'Supabase Pooler',
-    url: poolerUrl,
-    options: {
-      max: 1,
-      idle_timeout: 20,
-      connect_timeout: 30,
-      socket_timeout: 30000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      host_type: 'tcp',
-      transform: { undefined: null },
-      prepare: false,
-      keepAlive: true,
-      keepAliveInitialDelay: 0,
-    }
-  });
-  
-  // Estratégia 2: Conexão direta com configurações agressivas
-  connectionConfigs.push({
-    name: 'Conexão Direta',
-    url: databaseUrl,
+    name: 'IP Direto IPv4 Pooler',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@54.81.141.235:6543/postgres',
     options: {
       max: 1,
       idle_timeout: 15,
-      connect_timeout: 20,
-      socket_timeout: 20000,
+      connect_timeout: 10,
+      socket_timeout: 15000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
-      host_type: 'tcp',
-      transform: { undefined: null },
-      prepare: false,
       keepAlive: true,
-      keepAliveInitialDelay: 0,
+    }
+  });
+  
+  // Estratégia 2: Conexão direta porta 5432 com IP
+  connectionConfigs.push({
+    name: 'IP Direto IPv4 Direto',
+    url: 'postgresql://postgres:ServidorMardecores2025@54.81.141.235:5432/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 15,
+      connect_timeout: 10,
+      socket_timeout: 15000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+    }
+  });
+  
+  // Estratégia 3: Fallback para hostname original se IPs falharem
+  connectionConfigs.push({
+    name: 'Hostname Pooler Fallback',
+    url: databaseUrl,
+    options: {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 8,
+      socket_timeout: 12000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
     }
   });
   
@@ -113,50 +120,64 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Configuração simples mas eficaz para Railway com Supabase Pooler
-let finalDatabaseUrl = databaseUrl;
-let connectionOptions: any;
-
-if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 Configurando para produção Railway com Supabase Pooler...');
+// Sistema de conexão inteligente com fallback
+class SmartConnection {
+  private activeConnection: { client: any; db: any; name: string } | null = null;
   
-  // Usar Supabase Connection Pooler para melhor conectividade
-  finalDatabaseUrl = databaseUrl.replace(':5432/', ':6543/');
-  
-  connectionOptions = {
-    max: 1,
-    idle_timeout: 20,
-    connect_timeout: 15, // Reduzido para fail-fast
-    socket_timeout: 15000,
-    ssl: { rejectUnauthorized: false }, // Necessário para pooler
-    family: 4,
-    hints: 0x04,
-    host_type: 'tcp',
-    transform: { undefined: null },
-    prepare: false,
-    keepAlive: true,
-    keepAliveInitialDelay: 0,
-  };
-  
-  console.log('🌐 Usando Supabase Pooler (porta 6543)');
-  console.log('🔒 SSL configurado com rejectUnauthorized: false');
-  
-} else {
-  connectionOptions = {
-    max: 5,
-    ssl: false
-  };
+  async getConnection(): Promise<{ client: any; db: any; name: string }> {
+    // Se já temos uma conexão ativa, tentar usá-la
+    if (this.activeConnection) {
+      try {
+        await this.activeConnection.client`SELECT 1`;
+        return this.activeConnection;
+      } catch (error) {
+        console.log(`⚠️ Conexão ${this.activeConnection.name} falhou, tentando outras...`);
+        this.activeConnection = null;
+      }
+    }
+    
+    // Tentar cada configuração em sequência
+    for (const config of connectionConfigs) {
+      try {
+        console.log(`🔍 Tentando ${config.name}:`);
+        console.log(`   URL: ${config.url.replace(/:([^:@]+)@/, ':***@')}`);
+        
+        const client = postgres(config.url, config.options);
+        const db = drizzle(client, { schema });
+        
+        // Teste rápido de conectividade
+        const testPromise = client`SELECT 1 as test`;
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Timeout ${config.name}`)), 8000)
+        );
+        
+        await Promise.race([testPromise, timeoutPromise]);
+        
+        console.log(`✅ ${config.name} conectado com sucesso!`);
+        this.activeConnection = { client, db, name: config.name };
+        return this.activeConnection;
+        
+      } catch (error: any) {
+        console.log(`❌ ${config.name} falhou:`, error.message.substring(0, 100));
+        continue;
+      }
+    }
+    
+    throw new Error('❌ Todas as estratégias de conexão falharam');
+  }
 }
 
-const client = postgres(finalDatabaseUrl, connectionOptions);
-const db = drizzle(client, { schema });
+const smartConnection = new SmartConnection();
 
-// Log da configuração final
-console.log('🔗 Configuração PostgreSQL final:');
-console.log('   📍 URL:', finalDatabaseUrl.replace(/:([^:@]+)@/, ':***@'));
-console.log('   🌐 Ambiente:', process.env.NODE_ENV);
-console.log('   🔒 SSL:', connectionOptions.ssl ? 'Habilitado' : 'Desabilitado');
-console.log('   📡 Timeout de conexão:', connectionOptions.connect_timeout + 's');
+// Conexão padrão (fallback)
+const defaultConfig = connectionConfigs[0] || {
+  name: 'Default',
+  url: databaseUrl,
+  options: { max: 1, ssl: false }
+};
+
+const client = postgres(defaultConfig.url, defaultConfig.options);
+const db = drizzle(client, { schema });
 
 // Log da configuração de conexão
 console.log('🔗 Configurando conexão PostgreSQL:');
@@ -186,17 +207,17 @@ export class SupabaseStorage implements IStorage {
   private async testConnection(): Promise<void> {
     try {
       console.log('🔌 Testando conexão PostgreSQL...');
-      const result = await client`SELECT 1 as test, version() as version`;
-      console.log('✅ Conexão PostgreSQL estabelecida com sucesso!');
+      const { client: smartClient, name } = await smartConnection.getConnection();
+      const result = await smartClient`SELECT 1 as test, version() as version`;
+      console.log(`✅ Conexão PostgreSQL estabelecida com ${name}!`);
       console.log('📊 Versão PostgreSQL:', result[0].version.split(' ')[0]);
     } catch (error: any) {
       console.error('❌ Falha na conexão PostgreSQL:', error);
       
-      // Se for erro de IPv6, tentar fallback
+      // Se for erro de IPv6, logar detalhes
       if (error.message?.includes('ENETUNREACH') && error.message?.includes('2600:')) {
-        console.log('🔄 Detectado problema IPv6, tentando fallback...');
-        // Aqui poderiamos implementar um fallback, mas por agora vamos apenas logar
-        console.log('📝 Verifique as configurações de rede do Railway');
+        console.log('🔄 Detectado problema IPv6, mas tentativas de fallback já foram feitas');
+        console.log('📝 Todas as estratégias anti-IPv6 falharam');
       }
       
       throw error;
@@ -215,49 +236,24 @@ export class SupabaseStorage implements IStorage {
       console.log('🔍 Buscando usuário por username:', username);
       console.log('⏱️ Início da query às:', new Date().toISOString());
       
-      // Implementar retry com timeout mais curto
-      const maxRetries = 3;
-      const queryTimeout = 15000; // 15 segundos
+      // Usar conexão inteligente
+      const { db: smartDb, name: connectionName } = await smartConnection.getConnection();
+      console.log(`📊 Usando conexão: ${connectionName}`);
       
-      for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-          console.log(`🔄 Tentativa ${attempt}/${maxRetries}`);
-          
-          // Query com timeout
-          const queryPromise = db.select()
-            .from(schema.users)
-            .where(eq(schema.users.username, username))
-            .limit(1);
-          
-          const timeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Query timeout após ${queryTimeout}ms`)), queryTimeout)
-          );
-          
-          const result = await Promise.race([queryPromise, timeoutPromise]) as User[];
-          
-          const duration = Date.now() - startTime;
-          console.log(`✅ Query bem-sucedida em ${duration}ms:`, {
-            found: result.length > 0,
-            username: result[0]?.username || 'não encontrado',
-            attempt
-          });
-          
-          return result[0];
-          
-        } catch (attemptError: any) {
-          const duration = Date.now() - startTime;
-          console.log(`⚠️ Tentativa ${attempt} falhou após ${duration}ms:`, attemptError.message);
-          
-          if (attempt === maxRetries) {
-            throw attemptError;
-          }
-          
-          // Aguardar antes da próxima tentativa (backoff)
-          const delay = attempt * 1000; // 1s, 2s, 3s
-          console.log(`⏳ Aguardando ${delay}ms antes da próxima tentativa...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+      console.log('🔎 Executando query getUserByUsername...');
+      const result = await smartDb.select()
+        .from(schema.users)
+        .where(eq(schema.users.username, username))
+        .limit(1);
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ Query bem-sucedida em ${duration}ms:`, {
+        found: result.length > 0,
+        username: result[0]?.username || 'não encontrado',
+        connection: connectionName
+      });
+      
+      return result[0];
       
     } catch (error: any) {
       const duration = Date.now() - startTime;
