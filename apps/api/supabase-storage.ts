@@ -4,6 +4,7 @@ import postgres from 'postgres';
 import * as schema from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'crypto';
+import * as dns from 'dns';
 import type {
   User,
   InsertUser,
@@ -25,6 +26,12 @@ import type {
   InsertAnalytics,
 } from '@shared/schema';
 import type { IStorage } from './storage';
+
+// Forçar IPv4 no DNS resolver do Node.js para Railway
+if (process.env.NODE_ENV === 'production') {
+  dns.setDefaultResultOrder('ipv4first');
+  console.log('📡 DNS configurado para IPv4 first no Railway');
+}
 
 // Configuração do Drizzle com PostgreSQL - com fallback IPv4
 let databaseUrl = process.env.DATABASE_URL;
@@ -54,7 +61,7 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
-// Configurações otimizadas para conexão direta Supabase
+// Configurações otimizadas para conexão direta Supabase com força IPv4
 const connectionOptions = {
   max: 1, // Uma única conexão para evitar limites
   idle_timeout: 30,
@@ -69,6 +76,9 @@ const connectionOptions = {
   },
   // Habilitar prepared statements para conexão direta
   prepare: false,
+  // Forçar IPv4 no nível de conexão
+  host_type: 'tcp',
+  socket_timeout: 30000,
 };
 
 const client = postgres(databaseUrl, connectionOptions);
