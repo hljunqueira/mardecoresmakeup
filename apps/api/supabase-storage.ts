@@ -40,34 +40,36 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// SOLUÇÃO DEFINITIVA: Forçar IPv4 usando IP direto
+// SOLUÇÃO DEFINITIVA: Usar Supabase Connection Pooler
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Forçando conexão IPv4 direta...');
-  // Usar IP IPv4 direto do Supabase para evitar resolução DNS IPv6
+  console.log('🔄 Configurando Supabase Connection Pooler...');
+  // Usar o pooler oficial do Supabase que resolve problemas de conectividade
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    // IP IPv4 resolvido: db.wudcabcsxmahlufgsyop.supabase.co -> 34.95.41.230
-    const ipv4DatabaseUrl = databaseUrl.replace(
-      'db.wudcabcsxmahlufgsyop.supabase.co',
-      '34.95.41.230'
-    );
-    databaseUrl = ipv4DatabaseUrl;
-    console.log('📡 URL IPv4 forçada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+    // Usar connection pooler do Supabase
+    const poolerUrl = databaseUrl
+      .replace('db.wudcabcsxmahlufgsyop.supabase.co:5432', 
+               'aws-0-sa-east-1.pooler.supabase.com:5432')
+      .replace('/postgres', '/postgres?pgbouncer=true&connection_limit=1');
+    databaseUrl = poolerUrl;
+    console.log('📡 Pooler URL aplicada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
 
-// Configurações específicas para Railway/produção - simplificadas
+// Configurações otimizadas para Supabase Pooler
 const connectionOptions = {
-  max: 2, // Mínimo para evitar problemas
+  max: 1, // Uma única conexão para evitar limite do pooler
   idle_timeout: 30,
-  connect_timeout: 30,
+  connect_timeout: 10, // Reduzido para fail fast
   // SSL obrigatório para produção
   ssl: process.env.NODE_ENV === 'production',
-  // Simplificar transformações
+  // Configurações para pooler
   transform: {
     undefined: null,
   },
-  // Desabilitar prepared statements para evitar problemas
+  // Desabilitar prepared statements (requerido pelo pooler)
   prepare: false,
+  // Configurações específicas para PgBouncer
+  options: process.env.NODE_ENV === 'production' ? '--search_path=public' : undefined,
 };
 
 const client = postgres(databaseUrl, connectionOptions);
@@ -78,17 +80,23 @@ console.log('🔗 Configurando conexão PostgreSQL:');
 console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   🌐 Ambiente:', process.env.NODE_ENV);
 console.log('   🔒 SSL:', connectionOptions.ssl);
-console.log('   📡 Conexão: IPv4 forçada via IP direto');
+console.log('   📡 Conexão: Supabase Connection Pooler');
 
 export class SupabaseStorage implements IStorage {
   
   constructor() {
     console.log('✅ Inicializando Supabase Storage');
-    // Testar conexão na inicialização
+    // Testar conexão na inicialização com retry
     this.testConnection().catch(error => {
       console.error('❌ Erro na conexão inicial:', error.message);
-      console.log('📝 Tentando reconectar em 5 segundos...');
-      setTimeout(() => this.testConnection(), 5000);
+      console.log('🔄 Tentando reconectar em 10 segundos...');
+      // Não bloquear a inicialização - permitir que o servidor funcione como API
+      setTimeout(() => {
+        this.testConnection().catch(retryError => {
+          console.error('❌ Falha na segunda tentativa:', retryError.message);
+          console.log('⚠️ Servidor funcionando sem banco de dados - modo API apenas');
+        });
+      }, 10000);
     });
   }
   
