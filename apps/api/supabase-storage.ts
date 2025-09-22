@@ -40,42 +40,35 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// SOLUÇÃO DEFINITIVA: Usar Supabase Connection Pooler
+// SOLUÇÃO: Voltar para conexão direta com configurações IPv4
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Configurando Supabase Connection Pooler...');
-  // Usar o pooler oficial do Supabase que resolve problemas de conectividade
+  console.log('🔄 Configurando conexão direta Supabase...');
+  // Usar conexão direta mas com SSL configurado corretamente
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    // Usar porta 6543 do pooler e formato correto para tenant
-    databaseUrl = databaseUrl
-      .replace('db.wudcabcsxmahlufgsyop.supabase.co:5432', 
-               'aws-0-sa-east-1.pooler.supabase.com:6543')
-      .replace('postgres:', 'postgres.wudcabcsxmahlufgsyop:');
-    // Adicionar parâmetros do pooler apenas se não estiverem presentes
-    if (!databaseUrl.includes('pgbouncer=true')) {
+    // Manter URL original mas garantir SSL
+    if (!databaseUrl.includes('sslmode=require')) {
       const separator = databaseUrl.includes('?') ? '&' : '?';
-      databaseUrl += `${separator}pgbouncer=true&connection_limit=1`;
+      databaseUrl += `${separator}sslmode=require`;
     }
-    console.log('📡 Pooler URL aplicada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+    console.log('📡 Conexão direta configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
 
-// Configurações otimizadas para Supabase Pooler
+// Configurações otimizadas para conexão direta Supabase
 const connectionOptions = {
-  max: 1, // Uma única conexão para evitar limite do pooler
+  max: 1, // Uma única conexão para evitar limites
   idle_timeout: 30,
-  connect_timeout: 10, // Reduzido para fail fast
-  // SSL configurado para Supabase Pooler
+  connect_timeout: 20, // Aumentado para conexão direta
+  // SSL configurado para Supabase
   ssl: process.env.NODE_ENV === 'production' ? {
     rejectUnauthorized: false, // Aceitar certificados do Supabase
   } : false,
-  // Configurações para pooler
+  // Configurações básicas
   transform: {
     undefined: null,
   },
-  // Desabilitar prepared statements (requerido pelo pooler)
+  // Habilitar prepared statements para conexão direta
   prepare: false,
-  // Configurações específicas para PgBouncer
-  options: process.env.NODE_ENV === 'production' ? '--search_path=public' : undefined,
 };
 
 const client = postgres(databaseUrl, connectionOptions);
@@ -86,7 +79,7 @@ console.log('🔗 Configurando conexão PostgreSQL:');
 console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   🌐 Ambiente:', process.env.NODE_ENV);
 console.log('   🔒 SSL:', process.env.NODE_ENV === 'production' ? 'Habilitado (rejectUnauthorized: false)' : 'Desabilitado');
-console.log('   📡 Conexão: Supabase Connection Pooler');
+console.log('   📡 Conexão: Supabase Direto (sem pooler)');
 
 export class SupabaseStorage implements IStorage {
   
