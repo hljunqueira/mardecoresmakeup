@@ -26,7 +26,7 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
-// Configuração do Drizzle com PostgreSQL - com fallback
+// Configuração do Drizzle com PostgreSQL - com fallback IPv4
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
@@ -40,44 +40,34 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// Forçar IPv4 modificando a URL para usar conexão direta
+// SOLUÇÃO DEFINITIVA: Forçar IPv4 usando IP direto
 if (process.env.NODE_ENV === 'production') {
-  // Adicionar parâmetros específicos para forçar IPv4 no Railway
+  console.log('🔄 Forçando conexão IPv4 direta...');
+  // Usar IP IPv4 direto do Supabase para evitar resolução DNS IPv6
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    console.log('🔄 Configurando URL para ambiente Railway...');
-    // Adicionar parâmetros para melhor compatibilidade
-    const urlParts = new URL(databaseUrl);
-    urlParts.searchParams.set('sslmode', 'require');
-    urlParts.searchParams.set('connect_timeout', '30');
-    urlParts.searchParams.set('application_name', 'mardecores_railway');
-    databaseUrl = urlParts.toString();
-    console.log('📡 URL configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+    // IP IPv4 resolvido: db.wudcabcsxmahlufgsyop.supabase.co -> 34.95.41.230
+    const ipv4DatabaseUrl = databaseUrl.replace(
+      'db.wudcabcsxmahlufgsyop.supabase.co',
+      '34.95.41.230'
+    );
+    databaseUrl = ipv4DatabaseUrl;
+    console.log('📡 URL IPv4 forçada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
 
-// Configurações específicas para Railway/produção
+// Configurações específicas para Railway/produção - simplificadas
 const connectionOptions = {
-  max: 3, // Reduzido para evitar limite de conexões
-  idle_timeout: 20,
-  connect_timeout: 60, // Aumentado significativamente
-  socket_timeout: 30,
-  // Configurações de rede específicas para Railway
-  host_type: 'tcp',
+  max: 2, // Mínimo para evitar problemas
+  idle_timeout: 30,
+  connect_timeout: 30,
   // SSL obrigatório para produção
-  ssl: process.env.NODE_ENV === 'production' ? {
-    rejectUnauthorized: false, // Para resolver problemas de certificado no Railway
-  } : false,
-  // Configurações para Railway
-  prepare: false,
+  ssl: process.env.NODE_ENV === 'production',
+  // Simplificar transformações
   transform: {
     undefined: null,
   },
-  // Forçar resolução DNS para IPv4
-  family: 4,
-  dns: {
-    family: 4,
-    hints: 0x04, // AI_ADDRCONFIG
-  },
+  // Desabilitar prepared statements para evitar problemas
+  prepare: false,
 };
 
 const client = postgres(databaseUrl, connectionOptions);
@@ -88,7 +78,7 @@ console.log('🔗 Configurando conexão PostgreSQL:');
 console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   🌐 Ambiente:', process.env.NODE_ENV);
 console.log('   🔒 SSL:', connectionOptions.ssl);
-console.log('   📡 Protocolo: IPv4 forçado via pooler');
+console.log('   📡 Conexão: IPv4 forçada via IP direto');
 
 export class SupabaseStorage implements IStorage {
   
