@@ -64,8 +64,10 @@ const connectionOptions = {
   max: 1, // Uma única conexão para evitar limite do pooler
   idle_timeout: 30,
   connect_timeout: 10, // Reduzido para fail fast
-  // SSL obrigatório para produção
-  ssl: process.env.NODE_ENV === 'production',
+  // SSL configurado para Supabase Pooler
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false, // Aceitar certificados do Supabase
+  } : false,
   // Configurações para pooler
   transform: {
     undefined: null,
@@ -83,7 +85,7 @@ const db = drizzle(client, { schema });
 console.log('🔗 Configurando conexão PostgreSQL:');
 console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   🌐 Ambiente:', process.env.NODE_ENV);
-console.log('   🔒 SSL:', connectionOptions.ssl);
+console.log('   🔒 SSL:', process.env.NODE_ENV === 'production' ? 'Habilitado (rejectUnauthorized: false)' : 'Desabilitado');
 console.log('   📡 Conexão: Supabase Connection Pooler');
 
 export class SupabaseStorage implements IStorage {
