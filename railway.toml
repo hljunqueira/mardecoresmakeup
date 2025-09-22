@@ -1,10 +1,8 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm run build"
-watchPatterns = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 
 [deploy]
-startCommand = "npm start"
+startCommand = "npm run build && npm start"
 healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
