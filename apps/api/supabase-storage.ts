@@ -40,7 +40,7 @@ if (process.env.NODE_ENV === 'production') {
   console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
-// Configuração do Drizzle com PostgreSQL - com fallback IPv4
+// Configuração do Drizzle com PostgreSQL - com múltiplas estratégias de conexão
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
@@ -54,51 +54,109 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// SOLUÇÃO: Configurar conexão com força IPv4 extrema
+// SOLUÇÃO AVANÇADA: Múltiplas estratégias de conexão para Railway
+let connectionConfigs: any[] = [];
+
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Configurando conexão direta Supabase com força IPv4...');
-  // Usar conexão direta mas com SSL configurado corretamente
-  if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    // Tentar usar subdomaínio específico que pode ter melhor roteamento IPv4
-    databaseUrl = databaseUrl.replace(
-      'db.wudcabcsxmahlufgsyop.supabase.co',
-      'wudcabcsxmahlufgsyop.supabase.co'
-    );
-    
-    // Garantir SSL
-    if (!databaseUrl.includes('sslmode=require')) {
-      const separator = databaseUrl.includes('?') ? '&' : '?';
-      databaseUrl += `${separator}sslmode=require&connect_timeout=30`;
+  console.log('🔄 Configurando múltiplas estratégias de conexão para Railway...');
+  
+  // Estratégia 1: Supabase Connection Pooler (porta 6543)
+  const poolerUrl = databaseUrl.replace(':5432/', ':6543/');
+  connectionConfigs.push({
+    name: 'Supabase Pooler',
+    url: poolerUrl,
+    options: {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 30,
+      socket_timeout: 30000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      host_type: 'tcp',
+      transform: { undefined: null },
+      prepare: false,
+      keepAlive: true,
+      keepAliveInitialDelay: 0,
     }
-    console.log('📡 Conexão alternativa configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
-  }
+  });
+  
+  // Estratégia 2: Conexão direta com configurações agressivas
+  connectionConfigs.push({
+    name: 'Conexão Direta',
+    url: databaseUrl,
+    options: {
+      max: 1,
+      idle_timeout: 15,
+      connect_timeout: 20,
+      socket_timeout: 20000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      host_type: 'tcp',
+      transform: { undefined: null },
+      prepare: false,
+      keepAlive: true,
+      keepAliveInitialDelay: 0,
+    }
+  });
+  
+} else {
+  // Development: usar configuração simples
+  connectionConfigs.push({
+    name: 'Development',
+    url: databaseUrl,
+    options: {
+      max: 5,
+      ssl: false
+    }
+  });
 }
 
-// Configurações agressivas contra IPv6 para Railway
-const connectionOptions = {
-  max: 1, // Uma única conexão para evitar limites
-  idle_timeout: 30,
-  connect_timeout: 60, // Aumentado significativamente
-  socket_timeout: 60000,
-  // SSL configurado para Supabase
-  ssl: process.env.NODE_ENV === 'production' ? {
-    rejectUnauthorized: false, // Aceitar certificados do Supabase
-  } : false,
-  // Configurações de rede agressivas para IPv4
-  family: 4, // Forçar IPv4
-  hints: 0x04, // AI_ADDRCONFIG IPv4
-  host_type: 'tcp',
-  transform: {
-    undefined: null,
-  },
-  prepare: false,
-  // Opções avançadas de DNS/TCP
-  keepAlive: true,
-  keepAliveInitialDelay: 0,
-};
+// Configuração simples mas eficaz para Railway com Supabase Pooler
+let finalDatabaseUrl = databaseUrl;
+let connectionOptions: any;
 
-const client = postgres(databaseUrl, connectionOptions);
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔧 Configurando para produção Railway com Supabase Pooler...');
+  
+  // Usar Supabase Connection Pooler para melhor conectividade
+  finalDatabaseUrl = databaseUrl.replace(':5432/', ':6543/');
+  
+  connectionOptions = {
+    max: 1,
+    idle_timeout: 20,
+    connect_timeout: 15, // Reduzido para fail-fast
+    socket_timeout: 15000,
+    ssl: { rejectUnauthorized: false }, // Necessário para pooler
+    family: 4,
+    hints: 0x04,
+    host_type: 'tcp',
+    transform: { undefined: null },
+    prepare: false,
+    keepAlive: true,
+    keepAliveInitialDelay: 0,
+  };
+  
+  console.log('🌐 Usando Supabase Pooler (porta 6543)');
+  console.log('🔒 SSL configurado com rejectUnauthorized: false');
+  
+} else {
+  connectionOptions = {
+    max: 5,
+    ssl: false
+  };
+}
+
+const client = postgres(finalDatabaseUrl, connectionOptions);
 const db = drizzle(client, { schema });
+
+// Log da configuração final
+console.log('🔗 Configuração PostgreSQL final:');
+console.log('   📍 URL:', finalDatabaseUrl.replace(/:([^:@]+)@/, ':***@'));
+console.log('   🌐 Ambiente:', process.env.NODE_ENV);
+console.log('   🔒 SSL:', connectionOptions.ssl ? 'Habilitado' : 'Desabilitado');
+console.log('   📡 Timeout de conexão:', connectionOptions.connect_timeout + 's');
 
 // Log da configuração de conexão
 console.log('🔗 Configurando conexão PostgreSQL:');
