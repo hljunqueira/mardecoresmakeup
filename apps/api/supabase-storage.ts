@@ -29,8 +29,15 @@ import type { IStorage } from './storage';
 
 // Forçar IPv4 no DNS resolver do Node.js para Railway
 if (process.env.NODE_ENV === 'production') {
+  // Configurar DNS para IPv4 em múltiplas camadas
   dns.setDefaultResultOrder('ipv4first');
+  
+  // Forçar IPv4 no process.env para garantir que seja aplicado
+  process.env.UV_USE_IO_URING = '0'; // Desabilitar io_uring que pode causar problemas IPv6
+  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
+  
   console.log('📡 DNS configurado para IPv4 first no Railway');
+  console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
 // Configuração do Drizzle com PostgreSQL - com fallback IPv4
@@ -47,38 +54,47 @@ console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
 
-// SOLUÇÃO: Voltar para conexão direta com configurações IPv4
+// SOLUÇÃO: Configurar conexão com força IPv4 extrema
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔄 Configurando conexão direta Supabase...');
+  console.log('🔄 Configurando conexão direta Supabase com força IPv4...');
   // Usar conexão direta mas com SSL configurado corretamente
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    // Manter URL original mas garantir SSL
+    // Tentar usar subdomaínio específico que pode ter melhor roteamento IPv4
+    databaseUrl = databaseUrl.replace(
+      'db.wudcabcsxmahlufgsyop.supabase.co',
+      'wudcabcsxmahlufgsyop.supabase.co'
+    );
+    
+    // Garantir SSL
     if (!databaseUrl.includes('sslmode=require')) {
       const separator = databaseUrl.includes('?') ? '&' : '?';
-      databaseUrl += `${separator}sslmode=require`;
+      databaseUrl += `${separator}sslmode=require&connect_timeout=30`;
     }
-    console.log('📡 Conexão direta configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+    console.log('📡 Conexão alternativa configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
 
-// Configurações otimizadas para conexão direta Supabase com força IPv4
+// Configurações agressivas contra IPv6 para Railway
 const connectionOptions = {
   max: 1, // Uma única conexão para evitar limites
   idle_timeout: 30,
-  connect_timeout: 20, // Aumentado para conexão direta
+  connect_timeout: 60, // Aumentado significativamente
+  socket_timeout: 60000,
   // SSL configurado para Supabase
   ssl: process.env.NODE_ENV === 'production' ? {
     rejectUnauthorized: false, // Aceitar certificados do Supabase
   } : false,
-  // Configurações básicas
+  // Configurações de rede agressivas para IPv4
+  family: 4, // Forçar IPv4
+  hints: 0x04, // AI_ADDRCONFIG IPv4
+  host_type: 'tcp',
   transform: {
     undefined: null,
   },
-  // Habilitar prepared statements para conexão direta
   prepare: false,
-  // Forçar IPv4 no nível de conexão
-  host_type: 'tcp',
-  socket_timeout: 30000,
+  // Opções avançadas de DNS/TCP
+  keepAlive: true,
+  keepAliveInitialDelay: 0,
 };
 
 const client = postgres(databaseUrl, connectionOptions);
