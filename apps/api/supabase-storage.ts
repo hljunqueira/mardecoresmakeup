@@ -36,31 +36,7 @@ if (process.env.NODE_ENV === 'production') {
   process.env.UV_USE_IO_URING = '0'; // Desabilitar io_uring que pode causar problemas IPv6
   process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
   
-  // Override DNS lookup para forçar IPv4 globalmente
-  const net = require('net');
-  const originalLookup = net.lookup;
-  net.lookup = function(hostname: string, options: any, callback: any) {
-    // Se é um IP, retorna diretamente
-    if (net.isIP(hostname)) {
-      return originalLookup.call(this, hostname, options, callback);
-    }
-    
-    // Forçar family: 4 para IPv4
-    if (typeof options === 'function') {
-      callback = options;
-      options = { family: 4 };
-    } else if (typeof options === 'object') {
-      options.family = 4;
-    } else {
-      options = { family: 4 };
-    }
-    
-    console.log(`🌐 DNS Override: Resolvendo ${hostname} forçando IPv4`);
-    return originalLookup.call(this, hostname, options, callback);
-  };
-  
   console.log('📡 DNS configurado para IPv4 first no Railway');
-  console.log('🔧 DNS override global aplicado');
   console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
@@ -220,9 +196,9 @@ if (process.env.NODE_ENV === 'production') {
     }
   });
   
-  // Estratégia 4: Fallback com DNS override personalizado
+  // Estratégia 4: Fallback simples e rápido
   connectionConfigs.push({
-    name: 'DNS Override IPv4',
+    name: 'Fallback Simplificado',
     url: databaseUrl,
     options: {
       max: 1,
@@ -233,19 +209,6 @@ if (process.env.NODE_ENV === 'production') {
       family: 4,
       hints: 0x04,
       keepAlive: true,
-      // DNS lookup customizado para forçar IPv4
-      lookup: (hostname: string, options: any, callback: any) => {
-        const dns = require('dns');
-        console.log(`🌐 DNS Override: Resolvendo ${hostname} forçando IPv4`);
-        dns.resolve4(hostname, (err: any, addresses: string[]) => {
-          if (err || !addresses || addresses.length === 0) {
-            console.log(`❌ Falha ao resolver ${hostname} para IPv4:`, err?.message);
-            return callback(new Error(`Falha ao resolver ${hostname} para IPv4`));
-          }
-          console.log(`✅ Resolvido ${hostname} para IPv4: ${addresses[0]}`);
-          callback(null, addresses[0], 4);
-        });
-      },
     }
   });
   
