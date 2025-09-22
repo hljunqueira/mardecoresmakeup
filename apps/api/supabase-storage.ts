@@ -26,13 +26,19 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
-// Configuração do Drizzle com PostgreSQL
+// Configuração do Drizzle com PostgreSQL - com fallback
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
   console.log('📝 Configure a DATABASE_URL do PostgreSQL do Supabase no arquivo .env');
   throw new Error('DATABASE_URL não encontrada. Configure a conexão com o banco PostgreSQL do Supabase');
 }
+
+// Log das variáveis de ambiente disponíveis (mascarado)
+console.log('🔍 Variáveis de ambiente detectadas:');
+console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+console.log('   NODE_ENV:', process.env.NODE_ENV);
+console.log('   PORT:', process.env.PORT);
 
 // Forçar IPv4 modificando a URL para usar conexão direta
 if (process.env.NODE_ENV === 'production') {
