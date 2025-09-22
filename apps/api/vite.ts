@@ -82,9 +82,21 @@ export function serveStatic(app: Express) {
   if (!fs.existsSync(distPath)) {
     console.error('❌ Diretório de build não encontrado:', distPath);
     console.log('🔍 Listando conteúdo do diretório raiz:', fs.readdirSync(path.resolve(__dirname, "..", "..")));
-    throw new Error(
-      `Could not find the build directory: ${distPath}, make sure to build the client first`,
-    );
+    
+    // Em vez de quebrar, vamos servir apenas a API
+    console.log('⚠️ Modo API: Servindo apenas rotas da API sem frontend');
+    
+    // Serve uma página simples de status na raiz
+    app.get('/', (req, res) => {
+      res.json({
+        status: 'ok',
+        message: 'Mar de Cores API - Frontend em construção',
+        api: '/api',
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    return;
   }
 
   console.log('✅ Diretório de build encontrado:', distPath);
