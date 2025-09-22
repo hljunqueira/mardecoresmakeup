@@ -152,8 +152,64 @@ export class SupabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(schema.users).where(eq(schema.users.username, username)).limit(1);
-    return result[0];
+    const startTime = Date.now();
+    try {
+      console.log('🔍 Buscando usuário por username:', username);
+      console.log('⏱️ Início da query às:', new Date().toISOString());
+      
+      // Implementar retry com timeout mais curto
+      const maxRetries = 3;
+      const queryTimeout = 15000; // 15 segundos
+      
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`🔄 Tentativa ${attempt}/${maxRetries}`);
+          
+          // Query com timeout
+          const queryPromise = db.select()
+            .from(schema.users)
+            .where(eq(schema.users.username, username))
+            .limit(1);
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error(`Query timeout após ${queryTimeout}ms`)), queryTimeout)
+          );
+          
+          const result = await Promise.race([queryPromise, timeoutPromise]) as User[];
+          
+          const duration = Date.now() - startTime;
+          console.log(`✅ Query bem-sucedida em ${duration}ms:`, {
+            found: result.length > 0,
+            username: result[0]?.username || 'não encontrado',
+            attempt
+          });
+          
+          return result[0];
+          
+        } catch (attemptError: any) {
+          const duration = Date.now() - startTime;
+          console.log(`⚠️ Tentativa ${attempt} falhou após ${duration}ms:`, attemptError.message);
+          
+          if (attempt === maxRetries) {
+            throw attemptError;
+          }
+          
+          // Aguardar antes da próxima tentativa (backoff)
+          const delay = attempt * 1000; // 1s, 2s, 3s
+          console.log(`⏳ Aguardando ${delay}ms antes da próxima tentativa...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+      
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      console.error('❌ Erro final em getUserByUsername após', duration + 'ms:', {
+        username,
+        error: error.message,
+        stack: error.stack?.split('\n').slice(0, 3)
+      });
+      throw error;
+    }
   }
 
   async createUser(user: InsertUser): Promise<User> {

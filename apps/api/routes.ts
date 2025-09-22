@@ -62,8 +62,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/login", async (req, res) => {
     try {
       console.log('🔐 Tentativa de login:', { username: req.body.username });
+      console.log('📋 Dados recebidos:', {
+        username: req.body.username,
+        hasPassword: !!req.body.password,
+        passwordLength: req.body.password?.length || 0
+      });
+      
+      console.log('📝 Validando dados com Zod schema...');
       const { username, password } = adminAuthSchema.parse(req.body);
+      console.log('✅ Dados validados com sucesso');
+      
+      console.log('🔍 Iniciando busca por usuário...');
       const user = await storage.getUserByUsername(username);
+      console.log('📊 Resultado da busca:', { found: !!user, userId: user?.id || 'não encontrado' });
       
       if (!user) {
         console.log('❌ Usuário não encontrado:', username);
@@ -71,8 +82,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Hash da senha para comparação
+      console.log('🔒 Gerando hash da senha...');
       const hashedPassword = hashPassword(password);
-      console.log('🔍 Comparando senhas:', { stored: user.password.substring(0, 10) + '...', provided: hashedPassword.substring(0, 10) + '...' });
+      console.log('🔍 Comparando senhas:', { 
+        stored: user.password.substring(0, 10) + '...', 
+        provided: hashedPassword.substring(0, 10) + '...',
+        match: user.password === hashedPassword
+      });
       
       if (user.password !== hashedPassword) {
         console.log('❌ Senha incorreta para:', username);
@@ -82,7 +98,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('✅ Login bem-sucedido para:', username);
       res.json({ success: true, user: { id: user.id, username: user.username, role: user.role } });
     } catch (error) {
-      console.error('❌ Erro no login:', error);
+      console.error('❌ Erro no login:', {
+        error: error instanceof Error ? error.message : 'Erro desconhecido',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       res.status(400).json({ message: "Invalid request data" });
     }
   });
