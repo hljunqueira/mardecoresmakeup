@@ -5,11 +5,6 @@ import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
 import viteConfig from "../../vite.config";
 import { nanoid } from "nanoid";
-import { fileURLToPath } from "url";
-
-// Compatibilidade com ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const viteLogger = createLogger();
 
@@ -51,9 +46,7 @@ export async function setupVite(app: Express, server: Server) {
 
     try {
       const clientTemplate = path.resolve(
-        __dirname,
-        "..",
-        "..",
+        process.cwd(),
         "apps",
         "web",
         "index.html",
@@ -75,20 +68,18 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "..", "..", "dist", "public");
+  const distPath = path.resolve(process.cwd(), "dist", "public");
 
   console.log('📁 Tentando servir arquivos estáticos de:', distPath);
   console.log('🔍 Current working directory:', process.cwd());
-  console.log('🔍 __dirname:', __dirname);
   
   // Listar o que existe no diretório de trabalho
   try {
-    const rootDir = path.resolve(__dirname, "..", "..");
-    const rootContents = fs.readdirSync(rootDir);
+    const rootContents = fs.readdirSync(process.cwd());
     console.log('🔍 Conteúdo do diretório raiz:', rootContents);
     
     if (rootContents.includes('dist')) {
-      const distContents = fs.readdirSync(path.resolve(rootDir, 'dist'));
+      const distContents = fs.readdirSync(path.resolve(process.cwd(), 'dist'));
       console.log('🔍 Conteúdo de dist/:', distContents);
     }
   } catch (e) {

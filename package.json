@@ -7,7 +7,7 @@
     "dev": "cross-env PORT=5170 NODE_ENV=development tsx apps/api/index.ts",
     "dev:supabase": "cross-env PORT=5170 NODE_ENV=development USE_SUPABASE=true tsx apps/api/index.ts",
     "build:web": "vite build",
-    "build:api": "esbuild apps/api/index.ts --platform=node --packages=external --bundle --format=cjs --outdir=dist",
+    "build:api": "esbuild apps/api/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "build": "npm run build:web && npm run build:api",
     "start": "npm run build && cross-env NODE_ENV=production node dist/index.js",
     "check": "tsc",
