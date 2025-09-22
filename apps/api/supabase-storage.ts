@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+// Arquivo: supabase-storage.ts - Sistema de conexão inteligente com diagnóstico
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@shared/schema';
@@ -145,61 +146,92 @@ console.log('   📡 Pooler: Supavisor (nova geração)');
 let connectionConfigs: { name: string; url: string; options: any }[] = [];
 
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 Configurando múltiplas estratégias com Supavisor (novo pooler) para Railway...');
+  console.log('🔧 Configurando estratégias de fallback baseadas nos IPs corretos do Supabase US-East-1...');
   
-  // Estratégia 1: Supavisor Session Mode (recomendado para aplicações persistentes)
+  // Estratégia 1: IP direto US-East-1A com Pooler (da memória)
+  connectionConfigs.push({
+    name: 'IP Direto US-East-1A Pooler',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@44.195.202.139:6543/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10, // Timeout rápido para testar conectividade
+      socket_timeout: 12000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+    }
+  });
+  
+  // Estratégia 2: IP direto US-East-1B com Pooler (da memória)
+  connectionConfigs.push({
+    name: 'IP Direto US-East-1B Pooler',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@3.208.50.239:6543/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 20,
+      connect_timeout: 10,
+      socket_timeout: 12000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+    }
+  });
+  
+  // Estratégia 3: IP direto US-East-1A PostgreSQL direto (da memória)
+  connectionConfigs.push({
+    name: 'IP Direto US-East-1A PostgreSQL',
+    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 25,
+      connect_timeout: 12,
+      socket_timeout: 15000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+    }
+  });
+  
+  // Estratégia 4: IP direto US-East-1B PostgreSQL direto (da memória)
+  connectionConfigs.push({
+    name: 'IP Direto US-East-1B PostgreSQL',
+    url: 'postgresql://postgres:ServidorMardecores2025@3.208.50.239:5432/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 25,
+      connect_timeout: 12,
+      socket_timeout: 15000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+    }
+  });
+  
+  // Estratégia 5: Supavisor Session Mode (se IPs falharem)
   connectionConfigs.push({
     name: 'Supavisor Session Mode',
     url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
     options: {
       max: 1,
-      idle_timeout: 30, // Maior timeout para session mode
+      idle_timeout: 30,
       connect_timeout: 15,
       socket_timeout: 20000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
-      // Session mode permite conexões mais longas
     }
   });
   
-  // Estratégia 2: Supavisor Transaction Mode (ideal para Railway serverless)
+  // Estratégia 6: Último recurso - conexão direta simplificada
   connectionConfigs.push({
-    name: 'Supavisor Transaction Mode',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:6543/postgres',
-    options: {
-      max: 1,
-      idle_timeout: 10, // Menor timeout para transaction mode
-      connect_timeout: 12,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: false, // Transaction mode não mantém conexão
-    }
-  });
-  
-  // Estratégia 3: Conexão direta (fallback clássico)
-  connectionConfigs.push({
-    name: 'Conexão Direta Supabase',
+    name: 'Fallback Direto Simplificado',
     url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres',
-    options: {
-      max: 1,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-    }
-  });
-  
-  // Estratégia 4: Fallback simples e rápido
-  connectionConfigs.push({
-    name: 'Fallback Simplificado',
-    url: databaseUrl,
     options: {
       max: 1,
       idle_timeout: 15,
@@ -220,6 +252,20 @@ if (process.env.NODE_ENV === 'production') {
     options: {
       max: 5,
       ssl: false
+    }
+  });
+}
+
+// Adicionar estratégia de emergência para ambientes muito restritivos
+if (process.env.NODE_ENV === 'production') {
+  connectionConfigs.push({
+    name: 'Emergência - Configuração Mínima',
+    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
+    options: {
+      max: 1,
+      connect_timeout: 5, // Muito baixo
+      ssl: false, // Sem SSL como último recurso
+      family: 4,
     }
   });
 }
@@ -257,21 +303,33 @@ class SmartConnection {
       console.log('');
     }
     
-    // Tentar cada configuração em sequência
-    for (const config of connectionConfigs) {
+    // Tentar cada configuração em sequência com diagnóstico avançado
+    for (let configIndex = 0; configIndex < connectionConfigs.length; configIndex++) {
+      const config = connectionConfigs[configIndex];
       const attemptStart = Date.now();
       
       try {
         SupabaseErrorDiagnostics.logConnectionAttempt(config);
+        console.log(`🔢 Tentativa ${configIndex + 1}/${connectionConfigs.length}`);
         
         const client = postgres(config.url, config.options);
         const db = drizzle(client, { schema });
         
-        // Teste de conectividade com timeout personalizado
-        console.log('🔍 Executando teste de conectividade...');
-        const testPromise = client`SELECT 1 as test, current_database() as db, version() as version`;
+        // Teste de conectividade avançado com timeout personalizado
+        console.log('🔍 Executando teste de conectividade avançado...');
+        const testPromise = client`
+          SELECT 
+            1 as test, 
+            current_database() as db, 
+            version() as version,
+            current_user as user,
+            inet_server_addr() as server_ip,
+            current_timestamp as server_time
+        `;
+        
+        const timeoutDuration = config.options.connect_timeout * 1000 + 2000; // +2s buffer
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Timeout em ${config.name} após 8 segundos`)), 8000)
+          setTimeout(() => reject(new Error(`Timeout em ${config.name} após ${timeoutDuration/1000} segundos`)), timeoutDuration)
         );
         
         const result = await Promise.race([testPromise, timeoutPromise]) as any;
@@ -279,9 +337,12 @@ class SmartConnection {
         
         // Log de sucesso detalhado
         SupabaseErrorDiagnostics.logConnectionSuccess(config, duration);
-        console.log('📊 Detalhes da conexão:');
+        console.log('📊 Detalhes da conexão bem-sucedida:');
         console.log('   Database:', result[0]?.db || 'N/A');
         console.log('   Versão PostgreSQL:', result[0]?.version?.split(' ')[0] || 'N/A');
+        console.log('   Usuário:', result[0]?.user || 'N/A');
+        console.log('   IP do servidor:', result[0]?.server_ip || 'N/A');
+        console.log('   Hora do servidor:', result[0]?.server_time || 'N/A');
         
         // Salvar conexão ativa e histórico
         this.activeConnection = { client, db, name: config.name, config };
@@ -291,6 +352,7 @@ class SmartConnection {
           timestamp: new Date()
         });
         
+        console.log(`✅ SUCESSO: Conectado via ${config.name} em ${duration}ms`);
         return this.activeConnection;
         
       } catch (error: any) {
@@ -298,7 +360,7 @@ class SmartConnection {
         
         // Diagnóstico detalhado do erro
         console.log(`❌ ${config.name} falhou após ${duration}ms`);
-        SupabaseErrorDiagnostics.analyzeError(error, `Tentativa de conexão - ${config.name}`);
+        SupabaseErrorDiagnostics.analyzeError(error, `Tentativa ${configIndex + 1}/${connectionConfigs.length} - ${config.name}`);
         
         // Salvar no histórico
         this.connectionHistory.push({
@@ -307,6 +369,13 @@ class SmartConnection {
           error: error.message,
           timestamp: new Date()
         });
+        
+        // Se não é a última tentativa, aguardar um pouco antes da próxima
+        if (configIndex < connectionConfigs.length - 1) {
+          const delay = Math.min(1000 + (configIndex * 500), 3000); // Máx 3s
+          console.log(`⏳ Aguardando ${delay}ms antes da próxima tentativa...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
         
         continue;
       }
