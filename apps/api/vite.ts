@@ -87,6 +87,15 @@ export function serveStatic(app: Express) {
     if (rootContents.includes('dist')) {
       const distContents = fs.readdirSync(path.resolve(process.cwd(), 'dist'));
       console.log('🔍 Conteúdo de dist/:', distContents);
+      
+      if (distContents.includes('public')) {
+        const publicContents = fs.readdirSync(path.resolve(process.cwd(), 'dist', 'public'));
+        console.log('🔍 Conteúdo de dist/public/:', publicContents);
+      } else {
+        console.log('⚠️ Pasta dist/public não encontrada!');
+      }
+    } else {
+      console.log('⚠️ Pasta dist não encontrada!');
     }
   } catch (e) {
     console.log('🔍 Erro ao listar diretórios:', e);
