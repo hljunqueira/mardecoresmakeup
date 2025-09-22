@@ -44,10 +44,10 @@ app.use((req, res, next) => {
     console.log('📁 __dirname:', __dirname);
     
     // Listar o que existe antes de iniciar
-    const fs = require('fs');
-    const path = require('path');
-    
     try {
+      const fs = require('fs');
+      const path = require('path');
+      
       const rootContents = fs.readdirSync('.');
       console.log('🔍 Conteúdo do diretório atual:', rootContents);
       
@@ -83,7 +83,20 @@ app.use((req, res, next) => {
       await setupVite(app, server);
     } else {
       console.log('📋 Configurando arquivos estáticos para produção...');
-      serveStatic(app);
+      try {
+        serveStatic(app);
+      } catch (staticError) {
+        console.error('⚠️ Erro ao configurar arquivos estáticos, continuando apenas com API:', staticError);
+        // Se falhar, configura uma rota simples na raiz
+        app.get('/', (req, res) => {
+          res.json({
+            status: 'ok',
+            message: 'Mar de Cores API - Modo Emergencial',
+            error: 'Frontend não disponível',
+            api: '/api'
+          });
+        });
+      }
     }
 
     // Usa PORT do ambiente (Railway) ou padrão 5170 (dev)
