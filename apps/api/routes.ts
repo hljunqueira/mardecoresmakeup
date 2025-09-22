@@ -18,15 +18,6 @@ const adminAuthSchema = z.object({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Health check route para Railway
-  app.get("/", (req, res) => {
-    res.status(200).json({ 
-      status: "ok", 
-      message: "Mar de Cores API is running", 
-      environment: process.env.NODE_ENV || 'development',
-      timestamp: new Date().toISOString()
-    });
-  });
 
   app.get("/health", (req, res) => {
     res.status(200).json({ 
