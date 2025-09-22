@@ -27,26 +27,47 @@ import type {
 import type { IStorage } from './storage';
 
 // Configuração do Drizzle com PostgreSQL
-const databaseUrl = process.env.DATABASE_URL;
+let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
   console.log('📝 Configure a DATABASE_URL do PostgreSQL do Supabase no arquivo .env');
   throw new Error('DATABASE_URL não encontrada. Configure a conexão com o banco PostgreSQL do Supabase');
 }
 
+// Forçar IPv4 modificando a URL para usar IP direto em produção
+if (process.env.NODE_ENV === 'production') {
+  // Usar o Supabase Pooler que resolve problemas de IPv6
+  if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
+    console.log('🔄 Usando Supabase Pooler para melhor conectividade...');
+    // Adicionar parâmetro para forçar pooling e melhor conectividade
+    const urlParts = new URL(databaseUrl);
+    urlParts.hostname = 'aws-0-sa-east-1.pooler.supabase.com';
+    urlParts.port = '6543'; // Porta do pooler
+    urlParts.searchParams.set('sslmode', 'require');
+    urlParts.searchParams.set('connect_timeout', '30');
+    databaseUrl = urlParts.toString();
+    console.log('📡 Pooler URL aplicada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+  }
+}
+
 // Configurações específicas para Railway/produção
 const connectionOptions = {
-  max: 10, // Máximo de conexões
+  max: 5, // Reduzido para evitar limite de conexões
   idle_timeout: 20,
-  connect_timeout: 10,
-  socket_timeout: 5,
-  // Forçar IPv4 para evitar problemas de conectividade
-  family: 4,
-  // SSL para produção
+  connect_timeout: 30, // Aumentado
+  socket_timeout: 10,
+  // Configurações de rede para forçar IPv4
+  host_type: 'tcp',
+  // SSL obrigatório para produção
   ssl: process.env.NODE_ENV === 'production' ? 'require' as const : false,
-  // Configurações adicionais para Railway
+  // Transformações para compatibilidade
   transform: {
     undefined: null,
+  },
+  // Configurações específicas para Railway
+  prepare: false,
+  types: {
+    bigint: postgres.BigInt,
   },
 };
 
@@ -58,7 +79,7 @@ console.log('🔗 Configurando conexão PostgreSQL:');
 console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   🌐 Ambiente:', process.env.NODE_ENV);
 console.log('   🔒 SSL:', connectionOptions.ssl);
-console.log('   📶 IPv:', connectionOptions.family === 4 ? 'IPv4' : 'IPv6');
+console.log('   📡 Protocolo: IPv4 forçado via pooler');
 
 export class SupabaseStorage implements IStorage {
   
@@ -74,10 +95,20 @@ export class SupabaseStorage implements IStorage {
   
   private async testConnection(): Promise<void> {
     try {
-      const result = await client`SELECT 1 as test`;
+      console.log('🔌 Testando conexão PostgreSQL...');
+      const result = await client`SELECT 1 as test, version() as version`;
       console.log('✅ Conexão PostgreSQL estabelecida com sucesso!');
-    } catch (error) {
+      console.log('📊 Versão PostgreSQL:', result[0].version.split(' ')[0]);
+    } catch (error: any) {
       console.error('❌ Falha na conexão PostgreSQL:', error);
+      
+      // Se for erro de IPv6, tentar fallback
+      if (error.message?.includes('ENETUNREACH') && error.message?.includes('2600:')) {
+        console.log('🔄 Detectado problema IPv6, tentando fallback...');
+        // Aqui poderiamos implementar um fallback, mas por agora vamos apenas logar
+        console.log('📝 Verifique as configurações de rede do Railway');
+      }
+      
       throw error;
     }
   }
