@@ -38,38 +38,50 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  try {
+    console.log('🚀 Iniciando aplicação...');
+    const server = await registerRoutes(app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      console.error('❌ Erro na aplicação:', err);
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
-  });
+      res.status(status).json({ message });
+      throw err;
+    });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+    // importantly only setup vite in development and after
+    // setting up all the other routes so the catch-all route
+    // doesn't interfere with the other routes
+    if (app.get("env") === "development") {
+      console.log('🛠️ Configurando Vite para desenvolvimento...');
+      await setupVite(app, server);
+    } else {
+      console.log('📋 Configurando arquivos estáticos para produção...');
+      serveStatic(app);
+    }
+
+    // Usa PORT do ambiente (Railway) ou padrão 5170 (dev)
+    const port = parseInt(process.env.PORT || '8080', 10);
+    console.log(`🚀 Starting server on port ${port} in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`📁 Static files will be served from: ${process.env.NODE_ENV === 'production' ? 'dist/public' : 'development mode'}`);
+
+    // Windows não suporta reusePort e gera ENOTSUP. Tornamos condicional.
+    const listenOptions: { port: number; host: string; reusePort?: boolean } = {
+      port,
+      host: "0.0.0.0",
+    };
+    if (process.platform !== "win32") {
+      listenOptions.reusePort = true;
+    }
+
+    server.listen(listenOptions, () => {
+      console.log(`✅ Server successfully started on http://0.0.0.0:${port}`);
+      log(`serving on port ${port}`);
+    });
+  } catch (error) {
+    console.error('❌ Erro fatal na inicialização:', error);
+    process.exit(1);
   }
-
-  // Usa PORT do ambiente; se não houver, padrão 5170 (dev)
-  const port = parseInt(process.env.PORT || '5170', 10);
-
-  // Windows não suporta reusePort e gera ENOTSUP. Tornamos condicional.
-  const listenOptions: { port: number; host: string; reusePort?: boolean } = {
-    port,
-    host: "0.0.0.0",
-  };
-  if (process.platform !== "win32") {
-    listenOptions.reusePort = true;
-  }
-
-  server.listen(listenOptions, () => {
-    log(`serving on port ${port}`);
-  });
 })();
