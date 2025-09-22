@@ -40,6 +40,30 @@ app.use((req, res, next) => {
 (async () => {
   try {
     console.log('🚀 Iniciando aplicação...');
+    console.log('📁 Diretório de trabalho atual:', process.cwd());
+    console.log('📁 __dirname:', __dirname);
+    
+    // Listar o que existe antes de iniciar
+    const fs = require('fs');
+    const path = require('path');
+    
+    try {
+      const rootContents = fs.readdirSync('.');
+      console.log('🔍 Conteúdo do diretório atual:', rootContents);
+      
+      if (rootContents.includes('dist')) {
+        const distContents = fs.readdirSync('./dist');
+        console.log('🔍 Conteúdo de ./dist:', distContents);
+        
+        if (distContents.includes('public')) {
+          const publicContents = fs.readdirSync('./dist/public');
+          console.log('🔍 Conteúdo de ./dist/public:', publicContents);
+        }
+      }
+    } catch (e) {
+      console.log('🔍 Erro ao listar diretórios:', e instanceof Error ? e.message : String(e));
+    }
+    
     const server = await registerRoutes(app);
 
     app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
