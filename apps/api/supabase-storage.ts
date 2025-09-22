@@ -148,6 +148,7 @@ class SupabaseErrorDiagnostics {
 }
 
 // Configuração do Drizzle com PostgreSQL - sistema de fallback múltiplo
+// Usando Supavisor (novo pooler do Supabase) com modos session e transaction
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
   console.error('❌ DATABASE_URL não encontrada!');
@@ -160,86 +161,88 @@ console.log('🔍 Variáveis de ambiente detectadas:');
 console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
+console.log('   📡 Pooler: Supavisor (nova geração)');
 
-// SOLUÇÃO AVANÇADA: URLs de fallback para Railway
+// SOLUÇÃO AVANÇADA: URLs de fallback com Supavisor para Railway
+// Session Mode (porta 5432): Conexões persistentes, ideal para aplicações web
+// Transaction Mode (porta 6543): Conexões transientes, ideal para serverless
 let connectionConfigs: { name: string; url: string; options: any }[] = [];
 
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 Configurando múltiplas estratégias anti-IPv6 para Railway...');
+  console.log('🔧 Configurando múltiplas estratégias com Supavisor (novo pooler) para Railway...');
   
-  // Estratégia 1: Tentar com diferentes IPs do Supabase Pooler
+  // Estratégia 1: Supavisor Session Mode (recomendado para aplicações persistentes)
   connectionConfigs.push({
-    name: 'Supabase Pooler US-East-1A',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@44.195.202.139:6543/postgres',
+    name: 'Supavisor Session Mode',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
     options: {
       max: 1,
-      idle_timeout: 15,
-      connect_timeout: 12,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-      host: '44.195.202.139', // Forçar resolução de IP
-    }
-  });
-  
-  // Estratégia 2: IP alternativo do Supabase
-  connectionConfigs.push({
-    name: 'Supabase Pooler US-East-1B', 
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@3.208.50.239:6543/postgres',
-    options: {
-      max: 1,
-      idle_timeout: 15,
-      connect_timeout: 12,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-      host: '3.208.50.239',
-    }
-  });
-  
-  // Estratégia 3: Conexão direta com IP conhecido
-  connectionConfigs.push({
-    name: 'Supabase Direto IPv4',
-    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
-    options: {
-      max: 1,
-      idle_timeout: 15,
+      idle_timeout: 30, // Maior timeout para session mode
       connect_timeout: 15,
       socket_timeout: 20000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
-      host: '44.195.202.139',
+      // Session mode permite conexões mais longas
     }
   });
   
-  // Estratégia 4: Fallback com hostname mas forçando IPv4 agressivamente
+  // Estratégia 2: Supavisor Transaction Mode (ideal para Railway serverless)
   connectionConfigs.push({
-    name: 'Hostname com IPv4 forçado',
-    url: databaseUrl,
+    name: 'Supavisor Transaction Mode',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:6543/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 10, // Menor timeout para transaction mode
+      connect_timeout: 12,
+      socket_timeout: 15000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: false, // Transaction mode não mantém conexão
+    }
+  });
+  
+  // Estratégia 3: Conexão direta (fallback clássico)
+  connectionConfigs.push({
+    name: 'Conexão Direta Supabase',
+    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres',
     options: {
       max: 1,
       idle_timeout: 20,
-      connect_timeout: 6, // Timeout muito baixo para fail-fast
-      socket_timeout: 8000,
+      connect_timeout: 10,
+      socket_timeout: 15000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
-      // Opções adicionais para forçar IPv4
+    }
+  });
+  
+  // Estratégia 4: Fallback com DNS override personalizado
+  connectionConfigs.push({
+    name: 'DNS Override IPv4',
+    url: databaseUrl,
+    options: {
+      max: 1,
+      idle_timeout: 15,
+      connect_timeout: 8, // Timeout baixo para fail-fast
+      socket_timeout: 10000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+      // DNS lookup customizado para forçar IPv4
       lookup: (hostname: string, options: any, callback: any) => {
-        // Forçar resolução apenas IPv4
         const dns = require('dns');
+        console.log(`🌐 DNS Override: Resolvendo ${hostname} forçando IPv4`);
         dns.resolve4(hostname, (err: any, addresses: string[]) => {
           if (err || !addresses || addresses.length === 0) {
+            console.log(`❌ Falha ao resolver ${hostname} para IPv4:`, err?.message);
             return callback(new Error(`Falha ao resolver ${hostname} para IPv4`));
           }
-          console.log(`🌐 Resolvido ${hostname} para IPv4: ${addresses[0]}`);
+          console.log(`✅ Resolvido ${hostname} para IPv4: ${addresses[0]}`);
           callback(null, addresses[0], 4);
         });
       },
