@@ -41,7 +41,6 @@ app.use((req, res, next) => {
   try {
     console.log('🚀 Iniciando aplicação...');
     console.log('📁 Diretório de trabalho atual:', process.cwd());
-    console.log('📁 __dirname:', __dirname);
     
     // Listar o que existe antes de iniciar
     try {
