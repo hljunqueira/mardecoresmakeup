@@ -45,12 +45,16 @@ if (process.env.NODE_ENV === 'production') {
   console.log('🔄 Configurando Supabase Connection Pooler...');
   // Usar o pooler oficial do Supabase que resolve problemas de conectividade
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    // Usar connection pooler do Supabase
-    const poolerUrl = databaseUrl
-      .replace('db.wudcabcsxmahlufgsyop.supabase.co:5432', 
-               'aws-0-sa-east-1.pooler.supabase.com:5432')
-      .replace('/postgres', '/postgres?pgbouncer=true&connection_limit=1');
-    databaseUrl = poolerUrl;
+    // Simples substituição de hostname para pooler
+    databaseUrl = databaseUrl.replace(
+      'db.wudcabcsxmahlufgsyop.supabase.co',
+      'aws-0-sa-east-1.pooler.supabase.com'
+    );
+    // Adicionar parâmetros do pooler apenas se não estiverem presentes
+    if (!databaseUrl.includes('pgbouncer=true')) {
+      const separator = databaseUrl.includes('?') ? '&' : '?';
+      databaseUrl += `${separator}pgbouncer=true&connection_limit=1`;
+    }
     console.log('📡 Pooler URL aplicada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
