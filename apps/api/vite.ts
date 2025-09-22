@@ -78,10 +78,25 @@ export function serveStatic(app: Express) {
   const distPath = path.resolve(__dirname, "..", "..", "dist", "public");
 
   console.log('📁 Tentando servir arquivos estáticos de:', distPath);
+  console.log('🔍 Current working directory:', process.cwd());
+  console.log('🔍 __dirname:', __dirname);
+  
+  // Listar o que existe no diretório de trabalho
+  try {
+    const rootDir = path.resolve(__dirname, "..", "..");
+    const rootContents = fs.readdirSync(rootDir);
+    console.log('🔍 Conteúdo do diretório raiz:', rootContents);
+    
+    if (rootContents.includes('dist')) {
+      const distContents = fs.readdirSync(path.resolve(rootDir, 'dist'));
+      console.log('🔍 Conteúdo de dist/:', distContents);
+    }
+  } catch (e) {
+    console.log('🔍 Erro ao listar diretórios:', e);
+  }
   
   if (!fs.existsSync(distPath)) {
     console.error('❌ Diretório de build não encontrado:', distPath);
-    console.log('🔍 Listando conteúdo do diretório raiz:', fs.readdirSync(path.resolve(__dirname, "..", "..")));
     
     // Em vez de quebrar, vamos servir apenas a API
     console.log('⚠️ Modo API: Servindo apenas rotas da API sem frontend');
@@ -92,7 +107,12 @@ export function serveStatic(app: Express) {
         status: 'ok',
         message: 'Mar de Cores API - Frontend em construção',
         api: '/api',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        build_info: {
+          frontend_built: false,
+          backend_built: true,
+          dist_path: distPath
+        }
       });
     });
     
