@@ -40,6 +40,89 @@ if (process.env.NODE_ENV === 'production') {
   console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
+// Sistema de monitoramento e diagnóstico de erros Supabase
+class SupabaseErrorDiagnostics {
+  static analyzeError(error: any, context: string): void {
+    console.log(`\n🔍 === DIAGNÓSTICO DE ERRO SUPABASE === [${context}]`);
+    console.log('⏰ Timestamp:', new Date().toISOString());
+    console.log('📍 Contexto:', context);
+    
+    if (error) {
+      console.log('❌ Tipo de erro:', error.constructor.name);
+      console.log('📝 Mensagem:', error.message);
+      console.log('🔢 Código:', error.code || 'N/A');
+      console.log('🌐 Errno:', error.errno || 'N/A');
+      console.log('🎯 Syscall:', error.syscall || 'N/A');
+      
+      // Análise específica de erros de rede
+      if (error.address) {
+        console.log('🏠 Endereço:', error.address);
+        console.log('🚪 Porta:', error.port || 'N/A');
+        
+        // Detectar tipo de IP
+        const isIPv6 = error.address.includes(':') && error.address.includes('::') || error.address.match(/^[0-9a-f:]+$/i);
+        const isIPv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(error.address);
+        
+        console.log('🔗 Tipo de IP:', isIPv6 ? 'IPv6 ❌' : isIPv4 ? 'IPv4 ✅' : 'Hostname');
+      }
+      
+      // Análise específica de códigos de erro
+      switch (error.code) {
+        case 'ENETUNREACH':
+          console.log('🚫 DIAGNÓSTICO: Rede inalcançável - problemas de roteamento IPv6');
+          console.log('💡 SOLUÇÃO: Forçar IPv4 ou usar IP direto');
+          break;
+        case 'ECONNREFUSED':
+          console.log('🚫 DIAGNÓSTICO: Conexão recusada - serviço pode estar indisponível');
+          console.log('💡 SOLUÇÃO: Verificar status do Supabase e credenciais');
+          break;
+        case 'ETIMEDOUT':
+        case 'CONNECT_TIMEOUT':
+          console.log('🚫 DIAGNÓSTICO: Timeout de conexão - latência alta ou firewall');
+          console.log('💡 SOLUÇÃO: Reduzir timeout ou usar pooler');
+          break;
+        case 'ENOTFOUND':
+          console.log('🚫 DIAGNÓSTICO: DNS não resolveu - problema de resolução de nome');
+          console.log('💡 SOLUÇÃO: Usar IP direto ou verificar DNS');
+          break;
+        case 'ECONNRESET':
+          console.log('🚫 DIAGNÓSTICO: Conexão resetada - problema de rede intermitente');
+          console.log('💡 SOLUÇÃO: Implementar retry com backoff');
+          break;
+        default:
+          console.log('🔍 DIAGNÓSTICO: Erro não catalogado - análise manual necessária');
+      }
+      
+      // Stack trace limitado
+      if (error.stack) {
+        const stackLines = error.stack.split('\n').slice(0, 5);
+        console.log('📚 Stack trace (top 5):');
+        stackLines.forEach((line: string, i: number) => console.log(`   ${i + 1}. ${line.trim()}`));
+      }
+    }
+    
+    console.log('🔍 === FIM DO DIAGNÓSTICO ===\n');
+  }
+  
+  static logConnectionAttempt(config: any): void {
+    console.log(`\n📊 === TENTATIVA DE CONEXÃO === [${config.name}]`);
+    console.log('🎯 Estratégia:', config.name);
+    console.log('🌐 URL:', config.url.replace(/:([^:@]+)@/, ':***@'));
+    console.log('⏱️ Connect timeout:', config.options.connect_timeout + 's');
+    console.log('🔒 SSL:', config.options.ssl ? 'Habilitado' : 'Desabilitado');
+    console.log('👥 Max connections:', config.options.max);
+    console.log('📡 Family (IP):', config.options.family === 4 ? 'IPv4' : config.options.family === 6 ? 'IPv6' : 'Auto');
+    console.log('📊 === INICIANDO CONEXÃO ===\n');
+  }
+  
+  static logConnectionSuccess(config: any, duration: number): void {
+    console.log(`\n✅ === CONEXÃO BEM-SUCEDIDA === [${config.name}]`);
+    console.log('⚡ Duração:', duration + 'ms');
+    console.log('🎯 Estratégia vitoriosa:', config.name);
+    console.log('✅ === CONEXÃO ESTABELECIDA ===\n');
+  }
+}
+
 // Configuração do Drizzle com PostgreSQL - sistema de fallback múltiplo
 let databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -120,50 +203,124 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Sistema de conexão inteligente com fallback
+// Sistema de conexão inteligente com diagnóstico avançado
 class SmartConnection {
-  private activeConnection: { client: any; db: any; name: string } | null = null;
+  private activeConnection: { client: any; db: any; name: string; config: any } | null = null;
+  private connectionHistory: { name: string; success: boolean; error?: string; timestamp: Date }[] = [];
   
   async getConnection(): Promise<{ client: any; db: any; name: string }> {
     // Se já temos uma conexão ativa, tentar usá-la
     if (this.activeConnection) {
       try {
+        console.log(`🔄 Testando conexão ativa: ${this.activeConnection.name}`);
+        const testStart = Date.now();
         await this.activeConnection.client`SELECT 1`;
+        const testDuration = Date.now() - testStart;
+        console.log(`✅ Conexão ativa OK (${testDuration}ms)`);
         return this.activeConnection;
-      } catch (error) {
-        console.log(`⚠️ Conexão ${this.activeConnection.name} falhou, tentando outras...`);
+      } catch (error: any) {
+        console.log(`⚠️ Conexão ${this.activeConnection.name} falhou, invalidando...`);
+        SupabaseErrorDiagnostics.analyzeError(error, `Teste de conexão ativa - ${this.activeConnection.name}`);
         this.activeConnection = null;
       }
     }
     
+    // Mostrar histórico de tentativas anteriores
+    if (this.connectionHistory.length > 0) {
+      console.log('\n📈 Histórico de conexões anteriores:');
+      this.connectionHistory.slice(-3).forEach((attempt, i) => {
+        const status = attempt.success ? '✅' : '❌';
+        const timeAgo = Math.round((Date.now() - attempt.timestamp.getTime()) / 1000);
+        console.log(`   ${status} ${attempt.name} (${timeAgo}s atrás)`);
+      });
+      console.log('');
+    }
+    
     // Tentar cada configuração em sequência
     for (const config of connectionConfigs) {
+      const attemptStart = Date.now();
+      
       try {
-        console.log(`🔍 Tentando ${config.name}:`);
-        console.log(`   URL: ${config.url.replace(/:([^:@]+)@/, ':***@')}`);
+        SupabaseErrorDiagnostics.logConnectionAttempt(config);
         
         const client = postgres(config.url, config.options);
         const db = drizzle(client, { schema });
         
-        // Teste rápido de conectividade
-        const testPromise = client`SELECT 1 as test`;
+        // Teste de conectividade com timeout personalizado
+        console.log('🔍 Executando teste de conectividade...');
+        const testPromise = client`SELECT 1 as test, current_database() as db, version() as version`;
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error(`Timeout ${config.name}`)), 8000)
+          setTimeout(() => reject(new Error(`Timeout em ${config.name} após 8 segundos`)), 8000)
         );
         
-        await Promise.race([testPromise, timeoutPromise]);
+        const result = await Promise.race([testPromise, timeoutPromise]) as any;
+        const duration = Date.now() - attemptStart;
         
-        console.log(`✅ ${config.name} conectado com sucesso!`);
-        this.activeConnection = { client, db, name: config.name };
+        // Log de sucesso detalhado
+        SupabaseErrorDiagnostics.logConnectionSuccess(config, duration);
+        console.log('📊 Detalhes da conexão:');
+        console.log('   Database:', result[0]?.db || 'N/A');
+        console.log('   Versão PostgreSQL:', result[0]?.version?.split(' ')[0] || 'N/A');
+        
+        // Salvar conexão ativa e histórico
+        this.activeConnection = { client, db, name: config.name, config };
+        this.connectionHistory.push({
+          name: config.name,
+          success: true,
+          timestamp: new Date()
+        });
+        
         return this.activeConnection;
         
       } catch (error: any) {
-        console.log(`❌ ${config.name} falhou:`, error.message.substring(0, 100));
+        const duration = Date.now() - attemptStart;
+        
+        // Diagnóstico detalhado do erro
+        console.log(`❌ ${config.name} falhou após ${duration}ms`);
+        SupabaseErrorDiagnostics.analyzeError(error, `Tentativa de conexão - ${config.name}`);
+        
+        // Salvar no histórico
+        this.connectionHistory.push({
+          name: config.name,
+          success: false,
+          error: error.message,
+          timestamp: new Date()
+        });
+        
         continue;
       }
     }
     
-    throw new Error('❌ Todas as estratégias de conexão falharam');
+    // Se chegou aqui, todas as tentativas falharam
+    console.log('\n🚨 === TODAS AS ESTRATÉGIAS FALHARAM ===');
+    console.log('📊 Resumo das tentativas:');
+    this.connectionHistory.slice(-connectionConfigs.length).forEach(attempt => {
+      const status = attempt.success ? '✅' : '❌';
+      console.log(`   ${status} ${attempt.name}: ${attempt.error || 'OK'}`);
+    });
+    
+    console.log('\n💡 Recomendações:');
+    console.log('   1. Verificar status do Supabase: https://status.supabase.com');
+    console.log('   2. Testar conectividade local com mesmo banco');
+    console.log('   3. Verificar firewall/proxy do Railway');
+    console.log('   4. Considerar usar Supabase Edge Functions');
+    
+    throw new Error('❌ Todas as estratégias de conexão falharam - veja diagnósticos acima');
+  }
+  
+  getConnectionStats() {
+    const total = this.connectionHistory.length;
+    const successful = this.connectionHistory.filter(h => h.success).length;
+    const failed = total - successful;
+    const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
+    
+    return {
+      total,
+      successful,
+      failed,
+      successRate: successRate + '%',
+      activeConnection: this.activeConnection?.name || 'Nenhuma'
+    };
   }
 }
 
@@ -206,19 +363,40 @@ export class SupabaseStorage implements IStorage {
   
   private async testConnection(): Promise<void> {
     try {
-      console.log('🔌 Testando conexão PostgreSQL...');
+      console.log('🔌 Iniciando teste de conexão com diagnóstico avançado...');
       const { client: smartClient, name } = await smartConnection.getConnection();
-      const result = await smartClient`SELECT 1 as test, version() as version`;
-      console.log(`✅ Conexão PostgreSQL estabelecida com ${name}!`);
-      console.log('📊 Versão PostgreSQL:', result[0].version.split(' ')[0]);
-    } catch (error: any) {
-      console.error('❌ Falha na conexão PostgreSQL:', error);
       
-      // Se for erro de IPv6, logar detalhes
-      if (error.message?.includes('ENETUNREACH') && error.message?.includes('2600:')) {
-        console.log('🔄 Detectado problema IPv6, mas tentativas de fallback já foram feitas');
-        console.log('📝 Todas as estratégias anti-IPv6 falharam');
-      }
+      console.log('\n📊 === TESTE FINAL DE CONEXÃO ===');
+      const result = await smartClient`SELECT 
+        1 as test, 
+        version() as version,
+        current_database() as db,
+        current_user as user,
+        inet_server_addr() as server_ip`;
+      
+      console.log(`✅ Conexão PostgreSQL estabelecida com ${name}!`);
+      console.log('📊 Informações do servidor:');
+      console.log('   Versão:', result[0].version.split(' ')[0]);
+      console.log('   Database:', result[0].db);
+      console.log('   Usuário:', result[0].user);
+      console.log('   IP do servidor:', result[0].server_ip || 'N/A');
+      
+      // Estatísticas de conexão
+      const stats = smartConnection.getConnectionStats();
+      console.log('\n📊 Estatísticas de conexão:');
+      console.log('   Taxa de sucesso:', stats.successRate);
+      console.log('   Total de tentativas:', stats.total);
+      console.log('   Conexão ativa:', stats.activeConnection);
+      
+    } catch (error: any) {
+      console.error('🚨 === FALHA CRÍTICA NA CONEXÃO ===');
+      SupabaseErrorDiagnostics.analyzeError(error, 'Teste de conexão inicial');
+      
+      // Mostrar estatísticas mesmo em caso de erro
+      const stats = smartConnection.getConnectionStats();
+      console.log('\n📊 Estatísticas finais de conexão:');
+      console.log('   Taxa de sucesso:', stats.successRate);
+      console.log('   Total de tentativas:', stats.total);
       
       throw error;
     }
@@ -232,36 +410,50 @@ export class SupabaseStorage implements IStorage {
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const startTime = Date.now();
+    console.log('\n🔍 === BUSCA DE USUÁRIO ===');
+    console.log('📍 Username:', username);
+    console.log('⏱️ Início:', new Date().toISOString());
+    
     try {
-      console.log('🔍 Buscando usuário por username:', username);
-      console.log('⏱️ Início da query às:', new Date().toISOString());
-      
-      // Usar conexão inteligente
+      // Usar conexão inteligente com diagnóstico
       const { db: smartDb, name: connectionName } = await smartConnection.getConnection();
       console.log(`📊 Usando conexão: ${connectionName}`);
       
       console.log('🔎 Executando query getUserByUsername...');
+      const queryStart = Date.now();
+      
       const result = await smartDb.select()
         .from(schema.users)
         .where(eq(schema.users.username, username))
         .limit(1);
       
-      const duration = Date.now() - startTime;
-      console.log(`✅ Query bem-sucedida em ${duration}ms:`, {
-        found: result.length > 0,
+      const queryDuration = Date.now() - queryStart;
+      const totalDuration = Date.now() - startTime;
+      
+      console.log('✅ === BUSCA CONCLUÍDA ===');
+      console.log('🚀 Duração da query:', queryDuration + 'ms');
+      console.log('⏱️ Duração total:', totalDuration + 'ms');
+      console.log('🎯 Resultado:', {
+        encontrado: result.length > 0,
         username: result[0]?.username || 'não encontrado',
-        connection: connectionName
+        conexao: connectionName
       });
       
       return result[0];
       
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      console.error('❌ Erro final em getUserByUsername após', duration + 'ms:', {
-        username,
-        error: error.message,
-        stack: error.stack?.split('\n').slice(0, 3)
-      });
+      console.error('\n🚨 === ERRO NA BUSCA DE USUÁRIO ===');
+      console.error('⏱️ Duração até erro:', duration + 'ms');
+      
+      SupabaseErrorDiagnostics.analyzeError(error, `Busca de usuário: ${username}`);
+      
+      // Mostrar estatísticas de conexão para debug
+      const stats = smartConnection.getConnectionStats();
+      console.log('📊 Estatísticas de conexão no momento do erro:');
+      console.log('   Taxa de sucesso:', stats.successRate);
+      console.log('   Conexão ativa:', stats.activeConnection);
+      
       throw error;
     }
   }
