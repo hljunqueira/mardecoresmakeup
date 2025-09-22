@@ -1,16 +1,15 @@
-import pkg from 'pg';
-import * as dotenv from 'dotenv';
-import * as crypto from 'crypto';
+const { Client } = require('pg');
+const dotenv = require('dotenv');
+const crypto = require('crypto');
 
 dotenv.config();
-const { Client } = pkg;
 
-// Função para hash da senha (simples para desenvolvimento)
-function hashPassword(password: string): string {
+// Função para hash da senha (SHA256)
+function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-async function createAdminUser() {
+async function createMarDecoresAdmin() {
   const client = new Client({
     connectionString: process.env.DATABASE_URL,
   });
@@ -26,7 +25,7 @@ async function createAdminUser() {
       role: 'admin'
     };
 
-    console.log('\n👤 Cadastrando usuário administrativo...');
+    console.log('\n👤 Cadastrando usuário administrativo Mar de Cores...');
     
     // Verificar se já existe
     const existingUser = await client.query(
@@ -79,12 +78,33 @@ async function createAdminUser() {
     console.log(`   📧 Email: ${adminData.username}`);
     console.log(`   🔑 Senha: ${adminData.password}`);
     console.log('\n🚀 Pronto para fazer login no painel admin!');
+    console.log('🌐 URL: https://mardecoresmakeup.up.railway.app/admin');
     
   } catch (error) {
     console.error('❌ Erro ao criar usuário:', error.message);
+    
+    // Se a tabela não existir, criar
+    if (error.message.includes('relation "users" does not exist')) {
+      console.log('\n🔧 Criando tabela users...');
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS users (
+            id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+            username text NOT NULL UNIQUE,
+            password text NOT NULL,
+            role text DEFAULT 'admin',
+            created_at timestamp DEFAULT now(),
+            last_login_at timestamp
+          )
+        `);
+        console.log('✅ Tabela users criada! Execute o script novamente.');
+      } catch (createError) {
+        console.error('❌ Erro ao criar tabela:', createError.message);
+      }
+    }
   } finally {
     await client.end();
   }
 }
 
-createAdminUser();
+createMarDecoresAdmin();
