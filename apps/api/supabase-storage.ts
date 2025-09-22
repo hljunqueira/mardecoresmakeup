@@ -34,40 +34,43 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL não encontrada. Configure a conexão com o banco PostgreSQL do Supabase');
 }
 
-// Forçar IPv4 modificando a URL para usar IP direto em produção
+// Forçar IPv4 modificando a URL para usar conexão direta
 if (process.env.NODE_ENV === 'production') {
-  // Usar o Supabase Pooler que resolve problemas de IPv6
+  // Adicionar parâmetros específicos para forçar IPv4 no Railway
   if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
-    console.log('🔄 Usando Supabase Pooler para melhor conectividade...');
-    // Adicionar parâmetro para forçar pooling e melhor conectividade
+    console.log('🔄 Configurando URL para ambiente Railway...');
+    // Adicionar parâmetros para melhor compatibilidade
     const urlParts = new URL(databaseUrl);
-    urlParts.hostname = 'aws-0-sa-east-1.pooler.supabase.com';
-    urlParts.port = '6543'; // Porta do pooler
     urlParts.searchParams.set('sslmode', 'require');
     urlParts.searchParams.set('connect_timeout', '30');
+    urlParts.searchParams.set('application_name', 'mardecores_railway');
     databaseUrl = urlParts.toString();
-    console.log('📡 Pooler URL aplicada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+    console.log('📡 URL configurada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
   }
 }
 
 // Configurações específicas para Railway/produção
 const connectionOptions = {
-  max: 5, // Reduzido para evitar limite de conexões
+  max: 3, // Reduzido para evitar limite de conexões
   idle_timeout: 20,
-  connect_timeout: 30, // Aumentado
-  socket_timeout: 10,
-  // Configurações de rede para forçar IPv4
+  connect_timeout: 60, // Aumentado significativamente
+  socket_timeout: 30,
+  // Configurações de rede específicas para Railway
   host_type: 'tcp',
   // SSL obrigatório para produção
-  ssl: process.env.NODE_ENV === 'production' ? 'require' as const : false,
-  // Transformações para compatibilidade
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false, // Para resolver problemas de certificado no Railway
+  } : false,
+  // Configurações para Railway
+  prepare: false,
   transform: {
     undefined: null,
   },
-  // Configurações específicas para Railway
-  prepare: false,
-  types: {
-    bigint: postgres.BigInt,
+  // Forçar resolução DNS para IPv4
+  family: 4,
+  dns: {
+    family: 4,
+    hints: 0x04, // AI_ADDRCONFIG
   },
 };
 
