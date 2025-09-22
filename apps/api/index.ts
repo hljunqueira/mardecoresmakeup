@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import fs from "fs";
+import path from "path";
 
 const app = express();
 app.use(express.json());
@@ -44,9 +46,6 @@ app.use((req, res, next) => {
     
     // Listar o que existe antes de iniciar
     try {
-      const fs = require('fs');
-      const path = require('path');
-      
       const rootContents = fs.readdirSync('.');
       console.log('🔍 Conteúdo do diretório atual:', rootContents);
       
