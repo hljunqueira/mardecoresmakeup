@@ -36,7 +36,31 @@ if (process.env.NODE_ENV === 'production') {
   process.env.UV_USE_IO_URING = '0'; // Desabilitar io_uring que pode causar problemas IPv6
   process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
   
+  // Override DNS lookup para forçar IPv4 globalmente
+  const net = require('net');
+  const originalLookup = net.lookup;
+  net.lookup = function(hostname: string, options: any, callback: any) {
+    // Se é um IP, retorna diretamente
+    if (net.isIP(hostname)) {
+      return originalLookup.call(this, hostname, options, callback);
+    }
+    
+    // Forçar family: 4 para IPv4
+    if (typeof options === 'function') {
+      callback = options;
+      options = { family: 4 };
+    } else if (typeof options === 'object') {
+      options.family = 4;
+    } else {
+      options = { family: 4 };
+    }
+    
+    console.log(`🌐 DNS Override: Resolvendo ${hostname} forçando IPv4`);
+    return originalLookup.call(this, hostname, options, callback);
+  };
+  
   console.log('📡 DNS configurado para IPv4 first no Railway');
+  console.log('🔧 DNS override global aplicado');
   console.log('🔧 Configurações avançadas de rede aplicadas');
 }
 
@@ -143,51 +167,82 @@ let connectionConfigs: { name: string; url: string; options: any }[] = [];
 if (process.env.NODE_ENV === 'production') {
   console.log('🔧 Configurando múltiplas estratégias anti-IPv6 para Railway...');
   
-  // Estratégia 1: IP direto IPv4 do Supabase Pooler
+  // Estratégia 1: Tentar com diferentes IPs do Supabase Pooler
   connectionConfigs.push({
-    name: 'IP Direto IPv4 Pooler',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@54.81.141.235:6543/postgres',
+    name: 'Supabase Pooler US-East-1A',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@44.195.202.139:6543/postgres',
     options: {
       max: 1,
       idle_timeout: 15,
-      connect_timeout: 10,
+      connect_timeout: 12,
       socket_timeout: 15000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
+      host: '44.195.202.139', // Forçar resolução de IP
     }
   });
   
-  // Estratégia 2: Conexão direta porta 5432 com IP
+  // Estratégia 2: IP alternativo do Supabase
   connectionConfigs.push({
-    name: 'IP Direto IPv4 Direto',
-    url: 'postgresql://postgres:ServidorMardecores2025@54.81.141.235:5432/postgres',
+    name: 'Supabase Pooler US-East-1B', 
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@3.208.50.239:6543/postgres',
     options: {
       max: 1,
       idle_timeout: 15,
-      connect_timeout: 10,
+      connect_timeout: 12,
       socket_timeout: 15000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
+      host: '3.208.50.239',
     }
   });
   
-  // Estratégia 3: Fallback para hostname original se IPs falharem
+  // Estratégia 3: Conexão direta com IP conhecido
   connectionConfigs.push({
-    name: 'Hostname Pooler Fallback',
+    name: 'Supabase Direto IPv4',
+    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 15,
+      connect_timeout: 15,
+      socket_timeout: 20000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: 0x04,
+      keepAlive: true,
+      host: '44.195.202.139',
+    }
+  });
+  
+  // Estratégia 4: Fallback com hostname mas forçando IPv4 agressivamente
+  connectionConfigs.push({
+    name: 'Hostname com IPv4 forçado',
     url: databaseUrl,
     options: {
       max: 1,
       idle_timeout: 20,
-      connect_timeout: 8,
-      socket_timeout: 12000,
+      connect_timeout: 6, // Timeout muito baixo para fail-fast
+      socket_timeout: 8000,
       ssl: { rejectUnauthorized: false },
       family: 4,
       hints: 0x04,
       keepAlive: true,
+      // Opções adicionais para forçar IPv4
+      lookup: (hostname: string, options: any, callback: any) => {
+        // Forçar resolução apenas IPv4
+        const dns = require('dns');
+        dns.resolve4(hostname, (err: any, addresses: string[]) => {
+          if (err || !addresses || addresses.length === 0) {
+            return callback(new Error(`Falha ao resolver ${hostname} para IPv4`));
+          }
+          console.log(`🌐 Resolvido ${hostname} para IPv4: ${addresses[0]}`);
+          callback(null, addresses[0], 4);
+        });
+      },
     }
   });
   
