@@ -34,13 +34,52 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL não encontrada. Configure a conexão com o banco PostgreSQL do Supabase');
 }
 
-const client = postgres(databaseUrl);
+// Configurações específicas para Railway/produção
+const connectionOptions = {
+  max: 10, // Máximo de conexões
+  idle_timeout: 20,
+  connect_timeout: 10,
+  socket_timeout: 5,
+  // Forçar IPv4 para evitar problemas de conectividade
+  family: 4,
+  // SSL para produção
+  ssl: process.env.NODE_ENV === 'production' ? 'require' as const : false,
+  // Configurações adicionais para Railway
+  transform: {
+    undefined: null,
+  },
+};
+
+const client = postgres(databaseUrl, connectionOptions);
 const db = drizzle(client, { schema });
+
+// Log da configuração de conexão
+console.log('🔗 Configurando conexão PostgreSQL:');
+console.log('   📍 URL mascarada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+console.log('   🌐 Ambiente:', process.env.NODE_ENV);
+console.log('   🔒 SSL:', connectionOptions.ssl);
+console.log('   📶 IPv:', connectionOptions.family === 4 ? 'IPv4' : 'IPv6');
 
 export class SupabaseStorage implements IStorage {
   
   constructor() {
     console.log('✅ Inicializando Supabase Storage');
+    // Testar conexão na inicialização
+    this.testConnection().catch(error => {
+      console.error('❌ Erro na conexão inicial:', error.message);
+      console.log('📝 Tentando reconectar em 5 segundos...');
+      setTimeout(() => this.testConnection(), 5000);
+    });
+  }
+  
+  private async testConnection(): Promise<void> {
+    try {
+      const result = await client`SELECT 1 as test`;
+      console.log('✅ Conexão PostgreSQL estabelecida com sucesso!');
+    } catch (error) {
+      console.error('❌ Falha na conexão PostgreSQL:', error);
+      throw error;
+    }
   }
   
   // Operações de Usuário
