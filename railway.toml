@@ -1,5 +1,6 @@
 [build]
 builder = "nixpacks"
+buildCommand = "npm run build"
 watchPatterns = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx"]
 
 [deploy]
@@ -8,6 +9,3 @@ healthcheckPath = "/"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
-
-[variables]
-PORT = "$PORT"
