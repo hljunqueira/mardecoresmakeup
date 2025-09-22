@@ -2,11 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
-import { fileURLToPath } from "url";
-
-// Compatibilidade com ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [
@@ -23,14 +18,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "apps", "web", "src"),
-      "@shared": path.resolve(__dirname, "packages", "shared"),
-      "@assets": path.resolve(__dirname, "attached_assets"),
+      "@": path.resolve(process.cwd(), "apps", "web", "src"),
+      "@shared": path.resolve(process.cwd(), "packages", "shared"),
+      "@assets": path.resolve(process.cwd(), "attached_assets"),
     },
   },
-  root: path.resolve(__dirname, "apps", "web"),
+  root: path.resolve(process.cwd(), "apps", "web"),
   build: {
-    outDir: path.resolve(__dirname, "dist", "public"),
+    outDir: path.resolve(process.cwd(), "dist", "public"),
     emptyOutDir: true,
   },
   server: {
