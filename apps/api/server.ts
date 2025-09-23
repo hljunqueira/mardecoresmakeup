@@ -1,3 +1,18 @@
+// 🚀 NOVO ARQUIVO SERVER.TS - FORÇAR RAILWAY REBUILDAR TUDO
+// Se esta mensagem não aparecer, Railway tem bug de cache crítico
+import 'dotenv/config';
+
+// TIMESTAMP CRITICAL - DEVE APARECER SEMPRE
+const DEPLOY_TIMESTAMP = new Date().toISOString();
+console.log('\n'.repeat(5));
+console.log('='.repeat(80));
+console.log('🚨 RAILWAY CACHE BYPASS - ARQUIVO RENOMEADO PARA server.ts');
+console.log('⏰ TIMESTAMP DEPLOY:', DEPLOY_TIMESTAMP);
+console.log('🔄 VERSAO CRITICA: 2025-01-22-SERVER-RENAME');
+console.log('💣 SE ESTA MENSAGEM NAO APARECER = BUG DO RAILWAY');
+console.log('='.repeat(80));
+console.log('\n'.repeat(2));
+
 import 'dotenv/config';
 // 🚨 CRITICAL: Força IPv4 ANTES de qualquer import - primeira linha obrigatória no Railway
 import * as dns from 'dns';
