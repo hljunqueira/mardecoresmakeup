@@ -1,4 +1,24 @@
 import 'dotenv/config';
+// 🚨 CRITICAL: Força IPv4 ANTES de qualquer import - primeira linha obrigatória no Railway
+import * as dns from 'dns';
+
+// 👇 Garantir que Node escolhe sempre IPv4 primeiro (solução testada Railway)
+if (process.env.NODE_ENV === 'production') {
+  dns.setDefaultResultOrder('ipv4first');
+  console.log('📡 ✅ DNS configurado para IPv4 FIRST no Railway (aplicado ANTES de qualquer import)');
+  
+  // Teste para confirmar se funcionou (IPv4 vs IPv6)
+  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4 }, (err, address) => {
+    if (err) {
+      console.log('❌ Erro no DNS lookup IPv4:', err.message);
+    } else {
+      console.log('🔎 ✅ Supabase DNS resolvido para IPv4:', address);
+      console.log('🏆 Sucesso se começar com 44.x.x.x ou 3.x.x.x (não 2600:)');
+    }
+  });
+}
+
+// Agora sim, imports seguros após configurar DNS para IPv4
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";

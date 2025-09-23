@@ -1,3 +1,5 @@
+// DNS IPv4 já configurado no index.ts (primeira linha da aplicação)
+// NODE_OPTIONS também configurado no railway.toml para garantia máxima
 import { createClient } from '@supabase/supabase-js';
 // Arquivo: supabase-storage.ts - Sistema de conexão inteligente com diagnóstico
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -5,7 +7,6 @@ import postgres from 'postgres';
 import * as schema from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import * as crypto from 'crypto';
-import * as dns from 'dns';
 import type {
   User,
   InsertUser,
@@ -28,18 +29,7 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
-// Forçar IPv4 seguindo as diretrizes oficiais do Railway + Supabase
-if (process.env.NODE_ENV === 'production') {
-  // Configurar DNS para IPv4 em múltiplas camadas
-  dns.setDefaultResultOrder('ipv4first');
-  
-  // Forçar IPv4 no process.env para garantir que seja aplicado
-  process.env.UV_USE_IO_URING = '0';
-  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
-  
-  console.log('📡 DNS configurado para IPv4 first no Railway');
-  console.log('🔧 Usando family: 4 nas conexões conforme diretrizes oficiais');
-}
+
 
 // Sistema de monitoramento e diagnóstico de erros Supabase
 class SupabaseErrorDiagnostics {
