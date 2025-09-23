@@ -42,36 +42,22 @@ console.log('📊 Configuração do banco:');
 console.log('   URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   Ambiente:', process.env.NODE_ENV);
 
-// CORREÇÃO: Usar Supavisor Session Mode (recomendado para Railway)
-// Railway não suporta IPv6, então usamos o pooler que suporta IPv4/IPv6
+// TESTE: Usar conexão direta para verificar credenciais
+// Desabilitando conversão automática para pooler temporariamente
 let connectionUrl = databaseUrl;
 
-// FORÇAR pooler us-east-1 sempre em produção (Railway compatibilidade)
+// DESABILITADO: Conversão automática para pooler
+// Vamos testar primeiro a conexão direta para verificar as credenciais
+console.log('🧪 TESTE: Usando conexão direta para verificar credenciais');
+console.log('   Se funcionar: problema é com o pooler');
+console.log('   Se falhar: problema é com as credenciais');
+
+/*
 if (process.env.NODE_ENV === 'production') {
-  // Extrair informações da URL original ou já convertida
-  let urlMatch = databaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
-  
-  // Se não for URL direta, tentar extrair de URL do pooler
-  if (!urlMatch) {
-    urlMatch = databaseUrl.match(/postgresql:\/\/postgres\.([^:]+):([^@]+)@aws-0-[^.]+\.pooler\.supabase\.com:(\d+)\/(.+)/);
-  }
-  
-  if (urlMatch) {
-    const [, userOrProjectRef, password] = urlMatch;
-    // Se user é 'postgres', o projectRef está na posição 3, senão é a posição 1
-    const projectRef = userOrProjectRef === 'postgres' ? urlMatch[3] : userOrProjectRef;
-    
-    // FORMATO CORRETO para Supavisor Session Mode conforme documentação
-    // postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
-    // FORÇAR us-east-1 para Railway us-east4 (melhor conectividade)
-    connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
-    
-    console.log('🔄 FORÇADO Supavisor Session Mode us-east-1 (Railway compatível)');
-    console.log('   Original:', databaseUrl.replace(/:([^:@\/]+)@/, ':***@'));
-    console.log('   Novo: postgres.' + projectRef + '@aws-0-us-east-1.pooler.supabase.com:5432');
-    console.log('   🌎 Railway us-east4 (Ohio) → Supabase us-east-1 (Virginia)');
-  }
+  // Código do pooler comentado temporariamente
+  console.log('🚫 Pooler desabilitado para teste de credenciais');
 }
+*/
 
 // Configuração do cliente PostgreSQL otimizada para Railway + Supabase
 const connectionOptions = {
