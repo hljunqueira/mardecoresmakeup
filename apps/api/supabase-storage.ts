@@ -55,24 +55,40 @@ console.log('📊 Configuração do banco:');
 console.log('   URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   Ambiente:', process.env.NODE_ENV);
 
-// 🚨 MODO DEBUG: Conexão direta para diagnosticar
-// Não usar pooler para identificar se o problema é autenticação ou formato
+// 🎯 TESTE DIAGNÓSTICO: Conexão inteligente Supabase
+// Detecta automaticamente formato da URL e usa configuração apropriada
 let connectionUrl = databaseUrl;
+let connectionMode = 'UNKNOWN';
 
-// Forçar uma variável de ambiente visível no Railway
-process.env.DEBUG_CONNECTION_TYPE = databaseUrl.includes('pooler') ? 'POOLER_MODE' : 'DIRECT_MODE';
-process.env.DEBUG_TEST_STATUS = 'TESTING_CREDENTIALS';
-
-// Configuração simplificada: sempre usar URL original (sem conversão pooler)
-if (databaseUrl.includes('pooler')) {
-  console.log('⚠️ URL do pooler detectada - mantendo para teste');
-  console.log('🔍 DIAGNÓSTICO: Testando se problema é pooler ou credenciais');
+// Detectar tipo de conexão e configurar apropriadamente
+if (databaseUrl.includes('pooler.supabase.com')) {
+  connectionMode = 'POOLER_MODE';
+  console.log('⚠️ URL do Supavisor Pooler detectada');
+  console.log('🔍 MODO: Session Mode IPv4-compativel');
+  
+  // Verificar se o formato do usuario está correto no pooler
+  if (databaseUrl.includes('postgres.wudcabcsxmahlufgsyop:')) {
+    console.log('✅ Formato correto: postgres.PROJECT_REF:senha');
+  } else if (databaseUrl.includes('postgres:')) {
+    console.log('⚠️ Formato alternativo: postgres:senha (sem project ref)');
+  } else {
+    console.log('❌ Formato incorreto detectado na URL do pooler');
+  }
+} else if (databaseUrl.includes('db.wudcabcsxmahlufgsyop.supabase.co')) {
+  connectionMode = 'DIRECT_MODE';
+  console.log('📡 URL de conexão direta detectada');
+  console.log('🔍 MODO: Conexão direta IPv6 (pode falhar no Railway)');
+  console.log('💡 DICA: Se falhar, o problema é IPv6 vs IPv4');
 } else {
-  console.log('📡 URL direta detectada - perfeito para teste de credenciais');
-  console.log('🔍 DIAGNÓSTICO: Se falhar aqui, problema é nas credenciais básicas');
+  connectionMode = 'UNKNOWN_FORMAT';
+  console.log('❌ Formato de URL não reconhecido');
 }
 
-console.log('🧪 TESTE CRÍTICO:', connectionUrl.includes('pooler') ? 'POOLER' : 'DIRETO');
+// Forçar variáveis de ambiente para debug
+process.env.DEBUG_CONNECTION_TYPE = connectionMode;
+process.env.DEBUG_TEST_STATUS = 'TESTING_CREDENTIALS';
+
+console.log('🧪 TESTE CRÍTICO:', connectionMode);
 
 // IMPORTANTE: Log que sempre deve aparecer (sem emoji)
 debugLog('=== CACHE LIMPO BUILD 4 ===');
@@ -139,18 +155,28 @@ export class SupabaseStorage implements IStorage {
       console.error('   URL usada:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
       
       if (error.message.includes('Tenant or user not found')) {
-        // Extrair projectRef para debug
-        const debugUrlMatch = databaseUrl?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
-        const debugProjectRef = debugUrlMatch ? debugUrlMatch[3] : 'não extraído';
+        console.error('💡 === DIAGNÓSTICO DE ERRO SUPABASE ===');
         
-        console.error('💡 DICA: Erro comum do Supavisor Pooler');
-        console.error('   - Verifique se o formato do usuário está correto: postgres.PROJECT_REF');
-        console.error('   - Confirme se a região do pooler está correta (us-east-1 para Railway)');
-        console.error('   - Project Ref extraído:', debugProjectRef);
-        console.error('   - Tente usar conexão direta temporáriamente');
+        if (connectionMode === 'POOLER_MODE') {
+          console.error('🔴 ERRO NO POOLER: Tenant or user not found');
+          console.error('🔍 Possíveis causas:');
+          console.error('   1. Formato incorreto do usuário (deve ser postgres.PROJECT_REF ou postgres)');
+          console.error('   2. Região do pooler incorreta');
+          console.error('   3. Credenciais inválidas');
+          console.error('💡 SOLUÇÃO: Tentar conexão direta para isolar o problema');
+        } else if (connectionMode === 'DIRECT_MODE') {
+          console.error('🔴 ERRO NA CONEXÃO DIRETA: Tenant or user not found');
+          console.error('🔍 Isso indica problema nas credenciais básicas:');
+          console.error('   1. Senha incorreta: ServidorMardecores2025');
+          console.error('   2. Usuário incorreto: postgres');
+          console.error('   3. Project ID incorreto: wudcabcsxmahlufgsyop');
+          console.error('💡 SOLUÇÃO: Verificar credenciais no dashboard Supabase');
+        }
         
-        // Se estiver em produção, tentar outras regiões
-        if (process.env.NODE_ENV === 'production') {
+        console.error('='.repeat(50));
+        
+        // Se estiver em produção, tentar outras regiões (apenas para pooler)
+        if (process.env.NODE_ENV === 'production' && connectionMode === 'POOLER_MODE') {
           await this.tryAlternativeRegions();
           return;
         }
