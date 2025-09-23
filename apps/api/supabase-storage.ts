@@ -144,7 +144,7 @@ if (process.env.NODE_ENV === 'production') {
   // Estratégia 1: Supabase Pooler AWS (RECOMENDADO para IPv6) - porta 6543
   connectionConfigs.push({
     name: 'Supabase AWS Pooler (IPv6 Safe)',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+    url: 'postgresql://postgres:ServidorMardecores2025@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
     options: {
       max: 1, // Muito baixo para Railway gratuito + PgBouncer
       idle_timeout: 20,
@@ -199,6 +199,21 @@ if (process.env.NODE_ENV === 'production') {
       connect_timeout: 10,
       connection: { 
         family: 4 // 👈 Correção: força IPv4 no postgres.js
+      },
+    }
+  });
+  
+  // Estratégia 4: IP DIRETO (EMERGÊNCIA) - apenas se DNS IPv6 persistir
+  connectionConfigs.push({
+    name: 'Supabase IP Direto (Emergência)',
+    url: 'postgresql://postgres:ServidorMardecores2025@44.195.60.194:6543/postgres',
+    options: {
+      max: 1,
+      idle_timeout: 10,
+      connect_timeout: 8,
+      ssl: 'require',
+      connection: { 
+        family: 4 // Força IPv4 direto
       },
     }
   });
