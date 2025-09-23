@@ -138,7 +138,9 @@ console.log('🔍 Variáveis de ambiente detectadas:');
 console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
-console.log('   📡 Pooler: Supavisor (nova geração)');
+console.log('   📡 Estratégia: Hostnames DNS oficiais (IPs podem mudar)');
+console.log('   🔒 SSL: Obrigatório conforme diretrizes do Supabase');
+console.log('   🎯 Prioridade: Pgbouncer Pooler (porta 6543) > Conexão Direta (porta 5432)');
 
 // SOLUÇÃO AVANÇADA: URLs de fallback com Supavisor para Railway
 // Session Mode (porta 5432): Conexões persistentes, ideal para aplicações web
@@ -146,126 +148,81 @@ console.log('   📡 Pooler: Supavisor (nova geração)');
 let connectionConfigs: { name: string; url: string; options: any }[] = [];
 
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 Configurando estratégias de fallback baseadas nos IPs corretos do Supabase US-East-1...');
+  console.log('🔧 Configurando estratégias seguindo as melhores práticas oficiais do Supabase...');
+  console.log('⚠️ IMPORTANTE: Usando apenas hostnames DNS oficiais (IPs podem mudar sem aviso)');
   
-  // Estratégia 1: IP direto US-East-1A com Pooler (da memória)
+  // Estratégia 1: Pgbouncer Pooler (recomendado pelo Supabase) - porta 6543
   connectionConfigs.push({
-    name: 'IP Direto US-East-1A Pooler',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@44.195.202.139:6543/postgres',
+    name: 'Supabase Pgbouncer Pooler (Recomendado)',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:6543/postgres?sslmode=require',
     options: {
-      max: 1,
-      idle_timeout: 20,
-      connect_timeout: 10, // Timeout rápido para testar conectividade
-      socket_timeout: 12000,
-      ssl: { rejectUnauthorized: false },
+      max: 5, // Pooler suporta mais conexões
+      idle_timeout: 30,
+      connect_timeout: 20, // Timeout mais generoso para rede com latência
+      socket_timeout: 30000,
+      ssl: 'require', // SSL obrigatório conforme Supabase
       family: 4,
       hints: 0x04,
       keepAlive: true,
     }
   });
   
-  // Estratégia 2: IP direto US-East-1B com Pooler (da memória)
+  // Estratégia 2: Conexão direta (fallback) - porta 5432
   connectionConfigs.push({
-    name: 'IP Direto US-East-1B Pooler',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@3.208.50.239:6543/postgres',
+    name: 'Supabase Conexão Direta',
+    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres?sslmode=require',
     options: {
-      max: 1,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      socket_timeout: 12000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-    }
-  });
-  
-  // Estratégia 3: IP direto US-East-1A PostgreSQL direto (da memória)
-  connectionConfigs.push({
-    name: 'IP Direto US-East-1A PostgreSQL',
-    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
-    options: {
-      max: 1,
+      max: 1, // Conexão direta - menos escalável
       idle_timeout: 25,
-      connect_timeout: 12,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
+      connect_timeout: 20,
+      socket_timeout: 25000,
+      ssl: 'require', // SSL obrigatório
       family: 4,
       hints: 0x04,
       keepAlive: true,
     }
   });
   
-  // Estratégia 4: IP direto US-East-1B PostgreSQL direto (da memória)
-  connectionConfigs.push({
-    name: 'IP Direto US-East-1B PostgreSQL',
-    url: 'postgresql://postgres:ServidorMardecores2025@3.208.50.239:5432/postgres',
-    options: {
-      max: 1,
-      idle_timeout: 25,
-      connect_timeout: 12,
-      socket_timeout: 15000,
-      ssl: { rejectUnauthorized: false },
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-    }
-  });
-  
-  // Estratégia 5: Supavisor Session Mode (se IPs falharem)
+  // Estratégia 3: Supavisor Session Mode (nova geração de pooler)
   connectionConfigs.push({
     name: 'Supavisor Session Mode',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require',
     options: {
-      max: 1,
+      max: 5,
       idle_timeout: 30,
-      connect_timeout: 15,
-      socket_timeout: 20000,
-      ssl: { rejectUnauthorized: false },
+      connect_timeout: 25,
+      socket_timeout: 35000,
+      ssl: 'require',
       family: 4,
       hints: 0x04,
       keepAlive: true,
     }
   });
   
-  // Estratégia 6: Último recurso - conexão direta simplificada
+  // Estratégia 4: Supavisor Transaction Mode
   connectionConfigs.push({
-    name: 'Fallback Direto Simplificado',
-    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres',
+    name: 'Supavisor Transaction Mode',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require',
     options: {
       max: 1,
       idle_timeout: 15,
-      connect_timeout: 8, // Timeout baixo para fail-fast
-      socket_timeout: 10000,
-      ssl: { rejectUnauthorized: false },
+      connect_timeout: 20,
+      socket_timeout: 20000,
+      ssl: 'require',
       family: 4,
       hints: 0x04,
-      keepAlive: true,
+      keepAlive: false, // Transaction mode é mais efêmero
     }
   });
   
 } else {
-  // Development: usar configuração simples
+  // Development: usar configuração simples mas ainda com SSL
   connectionConfigs.push({
     name: 'Development',
-    url: databaseUrl,
+    url: databaseUrl + '?sslmode=require',
     options: {
       max: 5,
-      ssl: false
-    }
-  });
-}
-
-// Adicionar estratégia de emergência para ambientes muito restritivos
-if (process.env.NODE_ENV === 'production') {
-  connectionConfigs.push({
-    name: 'Emergência - Configuração Mínima',
-    url: 'postgresql://postgres:ServidorMardecores2025@44.195.202.139:5432/postgres',
-    options: {
-      max: 1,
-      connect_timeout: 5, // Muito baixo
-      ssl: false, // Sem SSL como último recurso
-      family: 4,
+      ssl: 'require' // SSL sempre necessário mesmo em dev
     }
   });
 }
