@@ -3,73 +3,45 @@ import 'dotenv/config';
 import * as dns from 'dns';
 import * as os from 'os';
 
-// 👇 SOLUÇÃO AGRESSIVA IPv4 (Railway não aplicou variáveis)
+// 👇 SOLUÇÃO AGRESSIVA IPv4 (Railway pode não aplicar variáveis automaticamente)
 if (process.env.NODE_ENV === 'production') {
-  console.log('🚨 === SOLUÇÃO AGRESSIVA IPv4 ===');
-  console.log('NODE_ENV:', process.env.NODE_ENV);
-  console.log('NODE_OPTIONS:', process.env.NODE_OPTIONS || '❌ NÃO DEFINIDA - USANDO SOLUÇÃO ALTERNATIVA');
-  
-  // SOLUÇÃO 1: Forçar configurações DNS múltiplas
-  console.log('⚡ Aplicando solução IPv4 agressiva...');
+  console.log('🚨 === CONFIGURAÇÃO IPv4 AGRESSIVA ===');
+  console.log('🌐 NODE_ENV:', process.env.NODE_ENV);
+  console.log('⚙️ NODE_OPTIONS:', process.env.NODE_OPTIONS || '⚠️ NÃO DEFINIDA (aplicando manualmente)');
   
   try {
-    // Método 1: DNS order
+    // Forçar DNS IPv4 em múltiplas camadas
     dns.setDefaultResultOrder('ipv4first');
-    console.log('✅ dns.setDefaultResultOrder aplicado');
-    
-    // Método 2: Variáveis de ambiente manuais
     process.env.UV_USE_IO_URING = '0';
     process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
-    console.log('✅ Variáveis IPv4 aplicadas manualmente');
     
-    // Método 3: Network interfaces
+    console.log('✅ DNS IPv4 aplicado com sucesso');
+    console.log('✅ Configurações anti-IPv6 ativadas');
+    
+    // Verificar disponibilidade IPv4
     const interfaces = os.networkInterfaces();
     const hasIPv4 = Object.values(interfaces).flat().some(iface => iface?.family === 'IPv4' && !iface.internal);
-    console.log('🌐 IPv4 disponível:', hasIPv4 ? '✅' : '❌');
+    console.log('🌐 IPv4 disponível na interface:', hasIPv4 ? '✅' : '❌');
     
   } catch (error: any) {
     console.log('⚠️ Erro ao aplicar configurações IPv4:', error.message);
   }
   
-  // Teste IMEDIATO com múltiplas estratégias
-  console.log('🔍 === TESTE DNS AGRESSIVO ===');
+  // Teste rápido de DNS (assíncrono para não bloquear startup)
+  console.log('🔍 Testando resolução DNS...');
   
-  // Teste 1: Forçando IPv4 explicitamente com hints
-  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4, hints: dns.ADDRCONFIG }, (err, address) => {
+  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4 }, (err, address) => {
     if (err) {
-      console.log('❌ DNS IPv4 com hints falhou:', err.message);
+      console.log('❌ DNS IPv4 falhou:', err.message);
     } else {
-      console.log('🔎 ✅ DNS IPv4 forçado:', address);
+      console.log('🔎 ✅ Supabase IPv4:', address);
       if (address.startsWith('44.') || address.startsWith('3.') || address.startsWith('54.')) {
-        console.log('🏆 ✅ SUCESSO - IPv4 AWS detectado!');
-      } else {
-        console.log('⚠️ IP inesperado, mas é IPv4:', address);
+        console.log('🏆 IPv4 AWS confirmado!');
       }
     }
   });
   
-  // Teste 2: Lookup simples IPv4
-  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4 }, (err, address, family) => {
-    if (err) {
-      console.log('❌ DNS IPv4 simples falhou:', err.message);
-    } else {
-      console.log(`📄 DNS IPv4 simples: ${address} (family: ${family})`);
-      if (family === 4) {
-        console.log('🏆 ✅ IPv4 confirmado!');
-      }
-    }
-  });
-  
-  // Teste 3: Resolve com IPv4 apenas
-  dns.resolve4('db.wudcabcsxmahlufgsyop.supabase.co', (err, addresses) => {
-    if (err) {
-      console.log('❌ DNS resolve4 falhou:', err.message);
-    } else {
-      console.log('📀 IPv4 addresses via resolve4:', addresses);
-    }
-  });
-  
-  console.log('🚨 === FIM SOLUÇÃO AGRESSIVA ===\n');
+  console.log('🚨 === IPv4 CONFIGURADO ===\n');
 }
 
 // Agora sim, imports seguros após configurar DNS para IPv4

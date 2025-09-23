@@ -1,7 +1,8 @@
 // DNS IPv4 já configurado no index.ts (primeira linha da aplicação)
+// 🔗 Supabase Storage - Sistema de conexão inteligente com IPv4 + modo offline
+// DNS IPv4 já configurado no index.ts (primeira linha da aplicação)
 // NODE_OPTIONS também configurado no railway.toml para garantia máxima
 import { createClient } from '@supabase/supabase-js';
-// Arquivo: supabase-storage.ts - Sistema de conexão inteligente com diagnóstico
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from '@shared/schema';
