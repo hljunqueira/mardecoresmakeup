@@ -1,59 +1,75 @@
 import 'dotenv/config';
 // 🚨 CRITICAL: Força IPv4 ANTES de qualquer import - primeira linha obrigatória no Railway
 import * as dns from 'dns';
+import * as os from 'os';
 
-// 👇 Garantir que Node escolhe sempre IPv4 primeiro (solução testada Railway)
+// 👇 SOLUÇÃO AGRESSIVA IPv4 (Railway não aplicou variáveis)
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 === VERIFICAÇÃO COMPLETA DE AMBIENTE IPv4 ===');
+  console.log('🚨 === SOLUÇÃO AGRESSIVA IPv4 ===');
   console.log('NODE_ENV:', process.env.NODE_ENV);
-  console.log('NODE_OPTIONS:', process.env.NODE_OPTIONS || '❌ NÃO DEFINIDA - ADICIONAR NO RAILWAY');
-  console.log('UV_USE_IO_URING:', process.env.UV_USE_IO_URING || '❌ NÃO DEFINIDA - ADICIONAR NO RAILWAY');
-  console.log('FORCE_IPV4:', process.env.FORCE_IPV4 || '❌ NÃO DEFINIDA - ADICIONAR NO RAILWAY');
-  console.log('DNS_ORDER:', process.env.DNS_ORDER || '❌ NÃO DEFINIDA - ADICIONAR NO RAILWAY');
+  console.log('NODE_OPTIONS:', process.env.NODE_OPTIONS || '❌ NÃO DEFINIDA - USANDO SOLUÇÃO ALTERNATIVA');
   
-  // Forçar configurações IPv4 independente das variáveis
-  console.log('⚠️ Forçando configurações IPv4 manualmente...');
-  dns.setDefaultResultOrder('ipv4first');
-  process.env.UV_USE_IO_URING = '0';
-  console.log('📡 ✅ DNS configurado para IPv4 FIRST no Railway (aplicado ANTES de qualquer import)');
+  // SOLUÇÃO 1: Forçar configurações DNS múltiplas
+  console.log('⚡ Aplicando solução IPv4 agressiva...');
   
-  // Teste IMEDIATO de resolução DNS
-  console.log('🔍 Testando resolução DNS imediatamente...');
+  try {
+    // Método 1: DNS order
+    dns.setDefaultResultOrder('ipv4first');
+    console.log('✅ dns.setDefaultResultOrder aplicado');
+    
+    // Método 2: Variáveis de ambiente manuais
+    process.env.UV_USE_IO_URING = '0';
+    process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
+    console.log('✅ Variáveis IPv4 aplicadas manualmente');
+    
+    // Método 3: Network interfaces
+    const interfaces = os.networkInterfaces();
+    const hasIPv4 = Object.values(interfaces).flat().some(iface => iface?.family === 'IPv4' && !iface.internal);
+    console.log('🌐 IPv4 disponível:', hasIPv4 ? '✅' : '❌');
+    
+  } catch (error: any) {
+    console.log('⚠️ Erro ao aplicar configurações IPv4:', error.message);
+  }
   
-  // Teste 1: IPv4 apenas
-  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4 }, (err, address) => {
+  // Teste IMEDIATO com múltiplas estratégias
+  console.log('🔍 === TESTE DNS AGRESSIVO ===');
+  
+  // Teste 1: Forçando IPv4 explicitamente com hints
+  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4, hints: dns.ADDRCONFIG }, (err, address) => {
     if (err) {
-      console.log('❌ 🎆 ERRO DNS IPv4:', err.message);
+      console.log('❌ DNS IPv4 com hints falhou:', err.message);
     } else {
-      console.log('🔎 ✅ Supabase DNS IPv4:', address);
-      if (address.startsWith('44.') || address.startsWith('3.')) {
-        console.log('🏆 ✅ SUCESSO - IPv4 está funcionando!');
+      console.log('🔎 ✅ DNS IPv4 forçado:', address);
+      if (address.startsWith('44.') || address.startsWith('3.') || address.startsWith('54.')) {
+        console.log('🏆 ✅ SUCESSO - IPv4 AWS detectado!');
       } else {
-        console.log('❌ 🚨 PROBLEMA - Não é IPv4 AWS esperado');
+        console.log('⚠️ IP inesperado, mas é IPv4:', address);
       }
     }
   });
   
-  // Teste 2: Todas as resoluções
-  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { all: true }, (err, addresses) => {
+  // Teste 2: Lookup simples IPv4
+  dns.lookup('db.wudcabcsxmahlufgsyop.supabase.co', { family: 4 }, (err, address, family) => {
     if (err) {
-      console.log('❌ Erro no DNS lookup completo:', err.message);
+      console.log('❌ DNS IPv4 simples falhou:', err.message);
     } else {
-      console.log('📊 === ANÁLISE COMPLETA DNS ===');
-      addresses.forEach((addr, i) => {
-        const type = addr.family === 4 ? 'IPv4 ✅' : 'IPv6 ❌';
-        console.log(`   ${i+1}. ${addr.address} (${type})`);
-      });
-      
-      const ipv4Count = addresses.filter(addr => addr.family === 4).length;
-      const ipv6Count = addresses.filter(addr => addr.family === 6).length;
-      console.log(`📈 Resumo: IPv4=${ipv4Count}, IPv6=${ipv6Count}`);
-      
-      if (ipv4Count === 0) {
-        console.log('🚨 PROBLEMA GRAVE: Nenhum IPv4 encontrado - DNS não está funcionando');
+      console.log(`📄 DNS IPv4 simples: ${address} (family: ${family})`);
+      if (family === 4) {
+        console.log('🏆 ✅ IPv4 confirmado!');
       }
     }
   });
+  
+  // Teste 3: Resolve com IPv4 apenas
+  dns.resolve4('db.wudcabcsxmahlufgsyop.supabase.co', (err, addresses) => {
+    if (err) {
+      console.log('❌ DNS resolve4 falhou:', err.message);
+    } else {
+      console.log('📀 IPv4 addresses via resolve4:', addresses);
+    }
+  });
+  
+  console.log('🚨 === FIM SOLUÇÃO AGRESSIVA ===\n');
 }
 
 // Agora sim, imports seguros após configurar DNS para IPv4
