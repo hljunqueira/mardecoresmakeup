@@ -124,9 +124,14 @@ export class SupabaseStorage implements IStorage {
       console.error('   URL usada:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
       
       if (error.message.includes('Tenant or user not found')) {
+        // Extrair projectRef para debug
+        const debugUrlMatch = databaseUrl?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+        const debugProjectRef = debugUrlMatch ? debugUrlMatch[3] : 'não extraído';
+        
         console.error('💡 DICA: Erro comum do Supavisor Pooler');
         console.error('   - Verifique se o formato do usuário está correto: postgres.PROJECT_REF');
         console.error('   - Confirme se a região do pooler está correta (us-east-1 para Railway)');
+        console.error('   - Project Ref extraído:', debugProjectRef);
         console.error('   - Tente usar conexão direta temporáriamente');
         
         // Se estiver em produção, tentar outras regiões

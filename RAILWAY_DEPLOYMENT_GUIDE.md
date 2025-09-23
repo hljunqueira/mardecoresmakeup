@@ -13,7 +13,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 
 ### 🗄️ Database (Supavisor Pooler - IPv4 Compatible)
 ```bash
-DATABASE_URL=postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+DATABASE_URL=postgresql://postgres:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 
 ### 🔧 Sistema
@@ -59,13 +59,14 @@ postgresql://postgres:senha@db.PROJECT_REF.supabase.co:5432/postgres
 
 ### ✅ Supavisor Session Mode (Recomendado)
 ```
-postgresql://postgres.PROJECT_REF:senha@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+postgresql://postgres:senha@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 - ✅ Suporta IPv4 + IPv6
 - ✅ Otimizado para apps persistentes
 - ✅ Gerenciamento automático de conexões
 - ✅ Compatible com Railway
 - 🌎 **Otimizado**: Railway us-east4 (Ohio) → Supabase us-east-1 (Virginia)
+- 👤 **Usuário**: `postgres` (sem project ref)
 
 ## 🌎 Otimização de Regiões
 
@@ -91,10 +92,10 @@ postgresql://postgres.PROJECT_REF:senha@aws-0-us-east-1.pooler.supabase.com:5432
 ## 🔍 Troubleshooting
 
 ### Erro: "Tenant or user not found"
-- ✅ Verificar formato: `postgres.PROJECT_REF:senha`
+- ✅ Verificar formato: `postgres:senha` (sem project ref)
 - ✅ Confirmar região do pooler: `aws-0-us-east-1` (otimizado para Railway)
 - ✅ Testar credenciais localmente
-- ✅ Fallback automático: `sa-east-1`, `eu-west-1`, `us-east-2`
+- ✅ Fallback automático: `us-east-1`, `sa-east-1`, `eu-west-1`
 
 ### Erro: "getaddrinfo ENOTFOUND"
 - ✅ Usar URL do pooler (não conexão direta)
