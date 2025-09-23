@@ -54,12 +54,13 @@ if (process.env.NODE_ENV === 'production' && databaseUrl.includes('db.') && data
   if (urlMatch) {
     const [, user, password, projectRef, port, database] = urlMatch;
     
-    // Construir URL do Supavisor Session Mode (IPv4 compatível)
-    connectionUrl = `postgresql://${user}.${projectRef}:${password}@aws-0-sa-east-1.pooler.supabase.com:5432/${database}`;
+    // FORMATO CORRETO para Supavisor Session Mode conforme documentação
+    // postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+    connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`;
     
     console.log('🔄 Convertido para Supavisor Session Mode (IPv4 compatível)');
     console.log('   Original: Conexão direta IPv6');
-    console.log('   Novo: aws-0-sa-east-1.pooler.supabase.com:5432');
+    console.log('   Novo: postgres.' + projectRef + '@aws-0-sa-east-1.pooler.supabase.com:5432');
   }
 }
 
@@ -78,6 +79,8 @@ console.log('⚙️ Opções de conexão:', {
   connect_timeout: connectionOptions.connect_timeout,
   pooler: connectionUrl.includes('pooler') ? 'Supavisor Session Mode' : 'Conexão Direta'
 });
+
+console.log('🔗 URL final de conexão:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
 
 const client = postgres(connectionUrl, connectionOptions);
 const db = drizzle(client, { schema });
@@ -112,6 +115,18 @@ export class SupabaseStorage implements IStorage {
       this.isConnected = true;
     } catch (error: any) {
       console.error('❌ Erro na conexão com o banco:', error.message);
+      console.error('🔍 Detalhes do erro:');
+      console.error('   Código:', error.code || 'N/A');
+      console.error('   Severity:', error.severity || 'N/A');
+      console.error('   URL usada:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
+      
+      if (error.message.includes('Tenant or user not found')) {
+        console.error('💡 DICA: Erro comum do Supavisor Pooler');
+        console.error('   - Verifique se o formato do usuário está correto: postgres.PROJECT_REF');
+        console.error('   - Confirme se a região do pooler está correta (sa-east-1)');
+        console.error('   - Tente usar conexão direta temporáriamente');
+      }
+      
       this.isConnected = false;
       throw error;
     }
