@@ -30,7 +30,14 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
+// Função de debug que sempre funciona (não é removida pelo ESBuild)
+const debugLog = (message: string) => {
+  // Usar process.stdout.write para garantir que a mensagem apareça
+  process.stdout.write(`[DEBUG] ${message}\n`);
+};
+
 // Configuração do banco PostgreSQL seguindo documentação oficial Supabase 2024
+debugLog('🔗 Inicializando Supabase Storage...');
 console.log('🔗 Inicializando Supabase Storage...');
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -42,22 +49,32 @@ console.log('📊 Configuração do banco:');
 console.log('   URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   Ambiente:', process.env.NODE_ENV);
 
-// TESTE: Usar conexão direta para verificar credenciais
-// Desabilitando conversão automática para pooler temporariamente
+// 🚨 MODO DEBUG: Conexão direta para diagnosticar
+// Não usar pooler para identificar se o problema é autenticação ou formato
 let connectionUrl = databaseUrl;
 
-// DESABILITADO: Conversão automática para pooler
-// Vamos testar primeiro a conexão direta para verificar as credenciais
-console.log('🧪 TESTE BUILD 2: Usando conexão direta para verificar credenciais');
-console.log('   Se funcionar: problema é com o pooler');
-console.log('   Se falhar: problema é com as credenciais');
+// Forçar uma variável de ambiente visível no Railway
+process.env.DEBUG_CONNECTION_TYPE = databaseUrl.includes('pooler') ? 'POOLER_MODE' : 'DIRECT_MODE';
+process.env.DEBUG_TEST_STATUS = 'TESTING_CREDENTIALS';
 
-/*
-if (process.env.NODE_ENV === 'production') {
-  // Código do pooler comentado temporariamente
-  console.log('🚫 Pooler desabilitado para teste de credenciais');
+// Configuração simplificada: sempre usar URL original (sem conversão pooler)
+if (databaseUrl.includes('pooler')) {
+  console.log('⚠️ URL do pooler detectada - mantendo para teste');
+  console.log('🔍 DIAGNÓSTICO: Testando se problema é pooler ou credenciais');
+} else {
+  console.log('📡 URL direta detectada - perfeito para teste de credenciais');
+  console.log('🔍 DIAGNÓSTICO: Se falhar aqui, problema é nas credenciais básicas');
 }
-*/
+
+console.log('🧪 TESTE CRÍTICO:', connectionUrl.includes('pooler') ? 'POOLER' : 'DIRETO');
+
+// IMPORTANTE: Log que sempre deve aparecer (sem emoji)
+debugLog('=== CACHE LIMPO BUILD 4 ===');
+debugLog('CONNECTION_MODE: ' + (process.env.DEBUG_CONNECTION_TYPE || 'UNKNOWN'));
+debugLog('TEST_STATUS: ' + (process.env.DEBUG_TEST_STATUS || 'UNKNOWN'));
+console.log('=== CACHE LIMPO BUILD 4 ===');
+console.log('CONNECTION_MODE:', process.env.DEBUG_CONNECTION_TYPE);
+console.log('TEST_STATUS:', process.env.DEBUG_TEST_STATUS);
 
 // Configuração do cliente PostgreSQL otimizada para Railway + Supabase
 const connectionOptions = {
