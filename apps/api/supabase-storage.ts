@@ -30,6 +30,12 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
+// TESTE EXTREMO: Se esta mensagem não aparecer, Railway não está usando novo build
+process.env.FORCE_DEPLOY_TIMESTAMP = new Date().toISOString();
+process.stdout.write('\n=== DEPLOY FORCADO EM ' + process.env.FORCE_DEPLOY_TIMESTAMP + ' ===\n');
+process.stdout.write('VERSAO_BUILD: 2025-01-22-CRITICAL\n');
+process.stdout.write('STATUS: TESTANDO_CREDENCIAIS_SUPABASE\n\n');
+
 // Função de debug que sempre funciona (não é removida pelo ESBuild)
 const debugLog = (message: string) => {
   // Usar process.stdout.write para garantir que a mensagem apareça
