@@ -141,7 +141,23 @@ if (process.env.NODE_ENV === 'production') {
   console.log('✅ Usando hostname DNS oficial (nunca IPs fixos)');
   console.log('✅ SSL obrigatório com sslmode=require');
   
-  // Estratégia 1: PgBouncer Pooler (RECOMENDADO para Railway) - porta 6543
+  // Estratégia 1: Supabase Pooler AWS (RECOMENDADO para IPv6) - porta 6543
+  connectionConfigs.push({
+    name: 'Supabase AWS Pooler (IPv6 Safe)',
+    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-sa-east-1.pooler.supabase.com:6543/postgres',
+    options: {
+      max: 1, // Muito baixo para Railway gratuito + PgBouncer
+      idle_timeout: 20,
+      connect_timeout: 15,
+      ssl: 'require', // SSL obrigatório para Supabase
+      connection: { 
+        family: 4 // 👈 Correção: força IPv4 no postgres.js
+      },
+      transform: { undefined: null },
+    }
+  });
+  
+  // Estratégia 2: PgBouncer Pooler (RECOMENDADO para Railway) - porta 6543
   connectionConfigs.push({
     name: 'Supabase PgBouncer (Recomendado Railway)',
     url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:6543/postgres',
