@@ -29,23 +29,83 @@ const client = postgres(url, {
 });
 ```
 
-## 🚀 Para Adicionar no Railway Dashboard
+## 🚀 Variáveis OBRIGATÓRIAS no Railway Dashboard
 
-Se ainda não funcionar, adicione esta variável de ambiente no Railway:
+⚠️ **PROBLEMA IDENTIFICADO**: O DNS ainda resolve para IPv6 (`2600:...`) 
+Precisa adicionar estas variáveis de ambiente no Railway:
 
-**Variable Name:** `NODE_OPTIONS`
-**Value:** `--dns-result-order=ipv4first`
+### ✅ Variáveis Críticas IPv4
+
+**1. NODE_OPTIONS** (MAIS IMPORTANTE)
+```
+VARIABLE_NAME: NODE_OPTIONS
+VALUE: --dns-result-order=ipv4first --max-old-space-size=512
+```
+
+**2. UV_USE_IO_URING** (Desabilita IPv6 async)
+```
+VARIABLE_NAME: UV_USE_IO_URING
+VALUE: 0
+```
+
+**3. NODE_ENV** (Se não estiver)
+```
+VARIABLE_NAME: NODE_ENV
+VALUE: production
+```
+
+**4. FORCE_IPV4** (Flag customizada)
+```
+VARIABLE_NAME: FORCE_IPV4
+VALUE: true
+```
+
+**5. DNS_ORDER** (Backup)
+```
+VARIABLE_NAME: DNS_ORDER
+VALUE: ipv4first
+```
+
+### 📋 Variáveis Existentes Necessárias
+Você já tem essas (manter):
+- DATABASE_URL
+- SUPABASE_URL  
+- SUPABASE_ANON_KEY
+- SUPABASE_SERVICE_ROLE_KEY
+- PORT
+- E outras do Supabase/Google
 
 ## 🔍 Como Verificar se Funcionou
 
-Os logs devem mostrar:
+### ✅ Logs de Sucesso Esperados:
 ```
+📡 ✅ DNS configurado para IPv4 FIRST no Railway
 🔎 ✅ Supabase DNS resolvido para IPv4: 44.x.x.x
 🏆 Sucesso se começar com 44.x.x.x ou 3.x.x.x (não 2600:)
 ✅ SUCESSO: Conectado via Supabase PgBouncer (Recomendado Railway)
 ```
 
-Se continuar mostrando `2600:...`, a configuração IPv4 não está sendo aplicada cedo o suficiente.
+### ❌ Logs de Falha (ainda IPv6):
+```
+❌ Supabase PgBouncer: connect ENETUNREACH 2600:1f1e:75b:4b12...
+❌ Supabase Conexão Direta: connect ENETUNREACH 2600:1f1e:75b:4b12...
+```
+
+**Se ainda mostrar `2600:...`**: As variáveis IPv4 não estão sendo aplicadas.
+
+### 🛑 Teste Manual no Railway Console
+Se as variáveis não funcionarem, teste no console do Railway:
+```bash
+# Verificar se NODE_OPTIONS está ativo
+echo $NODE_OPTIONS
+
+# Testar resolução DNS
+nslookup db.wudcabcsxmahlufgsyop.supabase.co
+
+# Forçar IPv4 manualmente
+export NODE_OPTIONS="--dns-result-order=ipv4first"
+node -e "require('dns').lookup('db.wudcabcsxmahlufgsyop.supabase.co', {family: 4}, console.log)"
+```
 
 ## ⚠️ Ordem de Prioridade
 
