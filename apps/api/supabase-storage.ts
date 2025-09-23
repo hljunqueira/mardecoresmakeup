@@ -510,10 +510,14 @@ export class SupabaseStorage implements IStorage {
       console.log('⚠️ MODO OFFLINE - Usando validação local para admin');
       
       if (username === 'mardecoresmakeup@gmail.com') {
+        // Hash SHA256 da senha 'Mardecores@09212615' (compatível com routes.ts)
+        const crypto = await import('crypto');
+        const sha256Hash = crypto.createHash('sha256').update('Mardecores@09212615').digest('hex');
+        
         const offlineUser: User = {
           id: 'offline-admin-id',
           username: 'mardecoresmakeup@gmail.com',
-          password: '$2b$10$4GJ6EYc9VN8yQP.mEFVkKOPbG6kLjQhJvhJX1zLxHjN8QsVmYqP7W', // Hash para 'Mardecores@09212615'
+          password: sha256Hash, // Hash SHA256 compatível com routes.ts
           role: 'admin',
           createdAt: new Date('2024-01-01'),
           lastLoginAt: new Date(),
@@ -521,7 +525,8 @@ export class SupabaseStorage implements IStorage {
         
         console.log('✅ === USUÁRIO OFFLINE ENCONTRADO ===');
         console.log('⏱️ Duração:', Date.now() - startTime + 'ms');
-        console.log('🎯 Admin offline autorizado');
+        console.log('🎯 Admin offline autorizado com hash SHA256');
+        console.log('🔐 Hash gerado:', sha256Hash.substring(0, 10) + '...');
         
         return offlineUser;
       } else {
