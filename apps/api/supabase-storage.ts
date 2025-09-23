@@ -30,7 +30,7 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
-// Configuração simples do banco PostgreSQL
+// Configuração do banco PostgreSQL seguindo documentação oficial Supabase 2024
 console.log('🔗 Inicializando Supabase Storage...');
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -42,22 +42,44 @@ console.log('📊 Configuração do banco:');
 console.log('   URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   Ambiente:', process.env.NODE_ENV);
 
-// Configuração do cliente PostgreSQL com settings otimizados para Railway
+// CORREÇÃO: Usar Supavisor Session Mode (recomendado para Railway)
+// Railway não suporta IPv6, então usamos o pooler que suporta IPv4/IPv6
+let connectionUrl = databaseUrl;
+
+// Se for produção e a URL for direta do Supabase, converter para pooler
+if (process.env.NODE_ENV === 'production' && databaseUrl.includes('db.') && databaseUrl.includes('.supabase.co')) {
+  // Extrair informações da URL original
+  const urlMatch = databaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+  
+  if (urlMatch) {
+    const [, user, password, projectRef, port, database] = urlMatch;
+    
+    // Construir URL do Supavisor Session Mode (IPv4 compatível)
+    connectionUrl = `postgresql://${user}.${projectRef}:${password}@aws-0-sa-east-1.pooler.supabase.com:5432/${database}`;
+    
+    console.log('🔄 Convertido para Supavisor Session Mode (IPv4 compatível)');
+    console.log('   Original: Conexão direta IPv6');
+    console.log('   Novo: aws-0-sa-east-1.pooler.supabase.com:5432');
+  }
+}
+
+// Configuração do cliente PostgreSQL otimizada para Railway + Supabase
 const connectionOptions = {
   max: 3,
   idle_timeout: 20,
   connect_timeout: 30,
-  ssl: 'require' as const, // SSL obrigatório para Supabase (produção e desenvolvimento)
+  ssl: 'require' as const, // SSL obrigatório para Supabase
   transform: { undefined: null },
 };
 
 console.log('⚙️ Opções de conexão:', {
   max: connectionOptions.max,
   ssl: 'require (SSL obrigatório)',
-  connect_timeout: connectionOptions.connect_timeout
+  connect_timeout: connectionOptions.connect_timeout,
+  pooler: connectionUrl.includes('pooler') ? 'Supavisor Session Mode' : 'Conexão Direta'
 });
 
-const client = postgres(databaseUrl, connectionOptions);
+const client = postgres(connectionUrl, connectionOptions);
 const db = drizzle(client, { schema });
 
 export class SupabaseStorage implements IStorage {
