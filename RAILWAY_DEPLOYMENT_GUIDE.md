@@ -65,6 +65,7 @@ postgresql://postgres.PROJECT_REF:senha@aws-0-sa-east-1.pooler.supabase.com:5432
 - ✅ Otimizado para apps persistentes
 - ✅ Gerenciamento automático de conexões
 - ✅ Compatible com Railway
+- 🇧🇷 Região: South America (São Paulo) - sa-east-1
 
 ## 🚀 Deploy Steps
 
@@ -77,8 +78,9 @@ postgresql://postgres.PROJECT_REF:senha@aws-0-sa-east-1.pooler.supabase.com:5432
 
 ### Erro: "Tenant or user not found"
 - ✅ Verificar formato: `postgres.PROJECT_REF:senha`
-- ✅ Confirmar região do pooler: `aws-0-sa-east-1`
+- ✅ Confirmar região do pooler: `aws-0-sa-east-1` (South America - São Paulo)
 - ✅ Testar credenciais localmente
+- ✅ Tentar outras regiões se necessário: `us-east-1`, `eu-west-1`
 
 ### Erro: "getaddrinfo ENOTFOUND"
 - ✅ Usar URL do pooler (não conexão direta)

@@ -56,11 +56,13 @@ if (process.env.NODE_ENV === 'production' && databaseUrl.includes('db.') && data
     
     // FORMATO CORRETO para Supavisor Session Mode conforme documentação
     // postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+    // Usando sa-east-1 (South America - São Paulo) - região correta para Brasil
     connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`;
     
     console.log('🔄 Convertido para Supavisor Session Mode (IPv4 compatível)');
     console.log('   Original: Conexão direta IPv6');
-    console.log('   Novo: postgres.' + projectRef + '@aws-0-sa-east-1.pooler.supabase.com:5432');
+    console.log('   Novo: postgres.' + projectRef + '@aws-0-sa-east-1.pooler.supabase.com:5432 (São Paulo)');
+    console.log('   Região: South America (São Paulo) - sa-east-1');
   }
 }
 
@@ -123,13 +125,56 @@ export class SupabaseStorage implements IStorage {
       if (error.message.includes('Tenant or user not found')) {
         console.error('💡 DICA: Erro comum do Supavisor Pooler');
         console.error('   - Verifique se o formato do usuário está correto: postgres.PROJECT_REF');
-        console.error('   - Confirme se a região do pooler está correta (sa-east-1)');
+        console.error('   - Confirme se a região do pooler está correta (sa-east-1 - São Paulo)');
         console.error('   - Tente usar conexão direta temporáriamente');
+        
+        // Se estiver em produção, tentar outras regiões
+        if (process.env.NODE_ENV === 'production') {
+          await this.tryAlternativeRegions();
+          return;
+        }
       }
       
       this.isConnected = false;
       throw error;
     }
+  }
+  
+  private async tryAlternativeRegions(): Promise<void> {
+    const regions = ['us-east-1', 'eu-west-1', 'ap-southeast-1'];
+    const urlMatch = process.env.DATABASE_URL?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+    
+    if (!urlMatch) {
+      throw new Error('Não foi possível extrair informações da DATABASE_URL');
+    }
+    
+    const [, user, password, projectRef, port, database] = urlMatch;
+    
+    console.log('🌎 Tentando regiões alternativas após falha na sa-east-1 (São Paulo)...');
+    
+    for (const region of regions) {
+      try {
+        console.log(`🔄 Tentando região alternativa: ${region}`);
+        const testUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-${region}.pooler.supabase.com:5432/postgres`;
+        const testClient = postgres(testUrl, connectionOptions);
+        
+        const result = await testClient`SELECT 1 as test`;
+        
+        console.log(`✅ Sucesso com região: ${region}`);
+        console.log(`💡 Use esta URL no Railway: ${testUrl.replace(/:([^:@\/]+)@/, ':***@')}`);
+        
+        // Fechar cliente de teste
+        await testClient.end();
+        return;
+        
+      } catch (error: any) {
+        console.log(`❌ Região ${region} falhou:`, error.message);
+        continue;
+      }
+    }
+    
+    console.error('❌ Todas as regiões alternativas falharam');
+    throw new Error('Não foi possível conectar com nenhuma região do Supavisor');
   }
 
   // === OPERAÇÕES DE USUÁRIO ===
