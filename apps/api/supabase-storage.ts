@@ -46,10 +46,27 @@ const debugLog = (message: string) => {
 debugLog('🔗 Inicializando Supabase Storage...');
 console.log('🔗 Inicializando Supabase Storage...');
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
+const rawDatabaseUrl = process.env.DATABASE_URL;
+if (!rawDatabaseUrl) {
   throw new Error('DATABASE_URL não encontrada nas variáveis de ambiente');
 }
+
+// DEBUG CRITICAL: Verificar exatamente o que está sendo recebido
+console.log('🔍 === DEBUG CRITICAL URL ===');
+console.log('   Raw DATABASE_URL:', JSON.stringify(rawDatabaseUrl));
+console.log('   Length:', rawDatabaseUrl.length);
+console.log('   Starts with postgresql:', rawDatabaseUrl.startsWith('postgresql:'));
+console.log('   Contains DATABASE_URL=:', rawDatabaseUrl.includes('DATABASE_URL='));
+
+// Limpar URL se contiver prefixo incorreto
+let databaseUrl = rawDatabaseUrl;
+if (rawDatabaseUrl.includes('DATABASE_URL=')) {
+  console.log('⚠️ PROBLEMA DETECTADO: URL contém prefixo DATABASE_URL=');
+  console.log('🔧 Removendo prefixo...');
+  databaseUrl = rawDatabaseUrl.replace('DATABASE_URL=', '');
+  console.log('✅ URL limpa:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
+}
+console.log('='.repeat(40));
 
 console.log('📊 Configuração do banco:');
 console.log('   URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
