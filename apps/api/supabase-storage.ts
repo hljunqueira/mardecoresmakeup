@@ -28,17 +28,32 @@ import type {
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
-// Forçar IPv4 no DNS resolver do Node.js para Railway
+// Forçar IPv4 no DNS resolver do Node.js para Railway - VERSÃO AGRESSIVA
 if (process.env.NODE_ENV === 'production') {
   // Configurar DNS para IPv4 em múltiplas camadas
   dns.setDefaultResultOrder('ipv4first');
   
   // Forçar IPv4 no process.env para garantir que seja aplicado
-  process.env.UV_USE_IO_URING = '0'; // Desabilitar io_uring que pode causar problemas IPv6
-  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first';
+  process.env.UV_USE_IO_URING = '0';
+  process.env.NODE_OPTIONS = (process.env.NODE_OPTIONS || '') + ' --dns-result-order=ipv4first --max-old-space-size=512';
   
-  console.log('📡 DNS configurado para IPv4 first no Railway');
-  console.log('🔧 Configurações avançadas de rede aplicadas');
+  // Override global do DNS para IPv4 APENAS
+  const originalLookup = require('dns').lookup;
+  require('dns').lookup = function(hostname: string, options: any, callback: any) {
+    if (typeof options === 'function') {
+      callback = options;
+      options = {};
+    }
+    options = options || {};
+    options.family = 4; // Forçar IPv4
+    options.hints = require('dns').ADDRCONFIG;
+    
+    console.log(`🌐 DNS Override forçando IPv4 para: ${hostname}`);
+    return originalLookup.call(this, hostname, options, callback);
+  };
+  
+  console.log('📡 DNS configurado para IPv4 AGRESSIVO no Railway');
+  console.log('🔧 DNS global override aplicado');
 }
 
 // Sistema de monitoramento e diagnóstico de erros Supabase
@@ -138,9 +153,7 @@ console.log('🔍 Variáveis de ambiente detectadas:');
 console.log('   DATABASE_URL:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('   NODE_ENV:', process.env.NODE_ENV);
 console.log('   PORT:', process.env.PORT);
-console.log('   📡 Estratégia: Hostnames DNS oficiais (IPs podem mudar)');
-console.log('   🔒 SSL: Obrigatório conforme diretrizes do Supabase');
-console.log('   🎯 Prioridade: Pgbouncer Pooler (porta 6543) > Conexão Direta (porta 5432)');
+console.log('   📡 Pooler: Supavisor (nova geração)');
 
 // SOLUÇÃO AVANÇADA: URLs de fallback com Supavisor para Railway
 // Session Mode (porta 5432): Conexões persistentes, ideal para aplicações web
@@ -148,81 +161,85 @@ console.log('   🎯 Prioridade: Pgbouncer Pooler (porta 6543) > Conexão Direta
 let connectionConfigs: { name: string; url: string; options: any }[] = [];
 
 if (process.env.NODE_ENV === 'production') {
-  console.log('🔧 Configurando estratégias seguindo as melhores práticas oficiais do Supabase...');
-  console.log('⚠️ IMPORTANTE: Usando apenas hostnames DNS oficiais (IPs podem mudar sem aviso)');
+  console.log('🔧 Configurando estratégias com DNS IPv4 agressivo e credenciais corretas...');
+  console.log('⚠️ PRIORIDADE: Conexão direta com IPv4 forçado');
   
-  // Estratégia 1: Pgbouncer Pooler (recomendado pelo Supabase) - porta 6543
+  // Estratégia 1: Conexão direta com SSL - PRIORIDADE MÁXIMA
   connectionConfigs.push({
-    name: 'Supabase Pgbouncer Pooler (Recomendado)',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:6543/postgres?sslmode=require',
+    name: 'Supabase Conexão Direta IPv4',
+    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres',
     options: {
-      max: 5, // Pooler suporta mais conexões
+      max: 3,
       idle_timeout: 30,
-      connect_timeout: 20, // Timeout mais generoso para rede com latência
-      socket_timeout: 30000,
-      ssl: 'require', // SSL obrigatório conforme Supabase
-      family: 4,
-      hints: 0x04,
-      keepAlive: true,
-    }
-  });
-  
-  // Estratégia 2: Conexão direta (fallback) - porta 5432
-  connectionConfigs.push({
-    name: 'Supabase Conexão Direta',
-    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres?sslmode=require',
-    options: {
-      max: 1, // Conexão direta - menos escalável
-      idle_timeout: 25,
       connect_timeout: 20,
       socket_timeout: 25000,
-      ssl: 'require', // SSL obrigatório
-      family: 4,
-      hints: 0x04,
+      ssl: { rejectUnauthorized: false },
+      family: 4, // IPv4 forçado
+      hints: require('dns').ADDRCONFIG,
       keepAlive: true,
+      transform: { undefined: null },
     }
   });
   
-  // Estratégia 3: Supavisor Session Mode (nova geração de pooler)
+  // Estratégia 2: Pgbouncer Pooler com SSL
   connectionConfigs.push({
-    name: 'Supavisor Session Mode',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require',
+    name: 'Supabase Pgbouncer Pooler IPv4',
+    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:6543/postgres',
+    options: {
+      max: 5,
+      idle_timeout: 30,
+      connect_timeout: 15,
+      socket_timeout: 20000,
+      ssl: { rejectUnauthorized: false },
+      family: 4,
+      hints: require('dns').ADDRCONFIG,
+      keepAlive: true,
+      transform: { undefined: null },
+    }
+  });
+  
+  // Estratégia 3: Supavisor com credenciais CORRETAS (postgres, não postgres.projeto)
+  connectionConfigs.push({
+    name: 'Supavisor Session Mode Corrigido',
+    url: 'postgresql://postgres:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres',
     options: {
       max: 5,
       idle_timeout: 30,
       connect_timeout: 25,
       socket_timeout: 35000,
-      ssl: 'require',
+      ssl: { rejectUnauthorized: false },
       family: 4,
-      hints: 0x04,
+      hints: require('dns').ADDRCONFIG,
       keepAlive: true,
     }
   });
   
-  // Estratégia 4: Supavisor Transaction Mode
+  // Estratégia 4: Fallback sem SSL (para casos extremos)
   connectionConfigs.push({
-    name: 'Supavisor Transaction Mode',
-    url: 'postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:6543/postgres?sslmode=require',
+    name: 'Fallback Sem SSL',
+    url: 'postgresql://postgres:ServidorMardecores2025@db.wudcabcsxmahlufgsyop.supabase.co:5432/postgres',
     options: {
       max: 1,
       idle_timeout: 15,
-      connect_timeout: 20,
-      socket_timeout: 20000,
-      ssl: 'require',
+      connect_timeout: 10,
+      socket_timeout: 15000,
+      ssl: false, // SEM SSL como último recurso
       family: 4,
-      hints: 0x04,
-      keepAlive: false, // Transaction mode é mais efêmero
+      hints: require('dns').ADDRCONFIG,
+      keepAlive: true,
     }
   });
   
 } else {
-  // Development: usar configuração simples mas ainda com SSL
+  // Development: usar configuração com IPv4 forçado
   connectionConfigs.push({
     name: 'Development',
-    url: databaseUrl + '?sslmode=require',
+    url: databaseUrl,
     options: {
       max: 5,
-      ssl: 'require' // SSL sempre necessário mesmo em dev
+      ssl: { rejectUnauthorized: false },
+      family: 4, // IPv4 forçado mesmo em dev
+      hints: require('dns').ADDRCONFIG,
     }
   });
 }
