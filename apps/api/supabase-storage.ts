@@ -48,7 +48,7 @@ let connectionUrl = databaseUrl;
 
 // DESABILITADO: Conversão automática para pooler
 // Vamos testar primeiro a conexão direta para verificar as credenciais
-console.log('🧪 TESTE: Usando conexão direta para verificar credenciais');
+console.log('🧪 TESTE BUILD 2: Usando conexão direta para verificar credenciais');
 console.log('   Se funcionar: problema é com o pooler');
 console.log('   Se falhar: problema é com as credenciais');
 
