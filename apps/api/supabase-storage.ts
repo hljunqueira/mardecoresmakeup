@@ -46,24 +46,30 @@ console.log('   Ambiente:', process.env.NODE_ENV);
 // Railway não suporta IPv6, então usamos o pooler que suporta IPv4/IPv6
 let connectionUrl = databaseUrl;
 
-// Se for produção e a URL for direta do Supabase, converter para pooler
-if (process.env.NODE_ENV === 'production' && databaseUrl.includes('db.') && databaseUrl.includes('.supabase.co')) {
-  // Extrair informações da URL original
-  const urlMatch = databaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+// FORÇAR pooler us-east-1 sempre em produção (Railway compatibilidade)
+if (process.env.NODE_ENV === 'production') {
+  // Extrair informações da URL original ou já convertida
+  let urlMatch = databaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+  
+  // Se não for URL direta, tentar extrair de URL do pooler
+  if (!urlMatch) {
+    urlMatch = databaseUrl.match(/postgresql:\/\/postgres\.([^:]+):([^@]+)@aws-0-[^.]+\.pooler\.supabase\.com:(\d+)\/(.+)/);
+  }
   
   if (urlMatch) {
-    const [, user, password, projectRef, port, database] = urlMatch;
+    const [, userOrProjectRef, password] = urlMatch;
+    // Se user é 'postgres', o projectRef está na posição 3, senão é a posição 1
+    const projectRef = userOrProjectRef === 'postgres' ? urlMatch[3] : userOrProjectRef;
     
     // FORMATO CORRETO para Supavisor Session Mode conforme documentação
     // postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
-    // Railway usa us-east4 (us-east-2), então usar us-east-1 para melhor conectividade
+    // FORÇAR us-east-1 para Railway us-east4 (melhor conectividade)
     connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
     
-    console.log('🔄 Convertido para Supavisor Session Mode (IPv4 compatível)');
-    console.log('   Original: Conexão direta IPv6');
+    console.log('🔄 FORÇADO Supavisor Session Mode us-east-1 (Railway compatível)');
+    console.log('   Original:', databaseUrl.replace(/:([^:@\/]+)@/, ':***@'));
     console.log('   Novo: postgres.' + projectRef + '@aws-0-us-east-1.pooler.supabase.com:5432');
-    console.log('   Railway Region: us-east4 (Ohio) → Supabase: us-east-1 (Virginia)');
-    console.log('   🌎 Conectividade otimizada entre regiões AWS próximas');
+    console.log('   🌎 Railway us-east4 (Ohio) → Supabase us-east-1 (Virginia)');
   }
 }
 
