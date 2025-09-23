@@ -56,13 +56,14 @@ if (process.env.NODE_ENV === 'production' && databaseUrl.includes('db.') && data
     
     // FORMATO CORRETO para Supavisor Session Mode conforme documentação
     // postgres.PROJECT_REF:PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
-    // Usando sa-east-1 (South America - São Paulo) - região correta para Brasil
-    connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-sa-east-1.pooler.supabase.com:5432/postgres`;
+    // Railway usa us-east4 (us-east-2), então usar us-east-1 para melhor conectividade
+    connectionUrl = `postgresql://postgres.${projectRef}:${password}@aws-0-us-east-1.pooler.supabase.com:5432/postgres`;
     
     console.log('🔄 Convertido para Supavisor Session Mode (IPv4 compatível)');
     console.log('   Original: Conexão direta IPv6');
-    console.log('   Novo: postgres.' + projectRef + '@aws-0-sa-east-1.pooler.supabase.com:5432 (São Paulo)');
-    console.log('   Região: South America (São Paulo) - sa-east-1');
+    console.log('   Novo: postgres.' + projectRef + '@aws-0-us-east-1.pooler.supabase.com:5432');
+    console.log('   Railway Region: us-east4 (Ohio) → Supabase: us-east-1 (Virginia)');
+    console.log('   🌎 Conectividade otimizada entre regiões AWS próximas');
   }
 }
 
@@ -125,7 +126,7 @@ export class SupabaseStorage implements IStorage {
       if (error.message.includes('Tenant or user not found')) {
         console.error('💡 DICA: Erro comum do Supavisor Pooler');
         console.error('   - Verifique se o formato do usuário está correto: postgres.PROJECT_REF');
-        console.error('   - Confirme se a região do pooler está correta (sa-east-1 - São Paulo)');
+        console.error('   - Confirme se a região do pooler está correta (us-east-1 para Railway)');
         console.error('   - Tente usar conexão direta temporáriamente');
         
         // Se estiver em produção, tentar outras regiões
@@ -141,16 +142,29 @@ export class SupabaseStorage implements IStorage {
   }
   
   private async tryAlternativeRegions(): Promise<void> {
-    const regions = ['us-east-1', 'eu-west-1', 'ap-southeast-1'];
-    const urlMatch = process.env.DATABASE_URL?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+    const regions = ['us-east-1', 'sa-east-1', 'eu-west-1', 'us-east-2', 'ap-southeast-1'];
     
+    // Tentar extrair da URL original OU da URL já convertida do pooler
+    let urlMatch = process.env.DATABASE_URL?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+    
+    // Se não conseguiu extrair da URL direta, tentar da URL do pooler
     if (!urlMatch) {
-      throw new Error('Não foi possível extrair informações da DATABASE_URL');
+      urlMatch = connectionUrl.match(/postgresql:\/\/postgres\.([^:]+):([^@]+)@aws-0-[^.]+\.pooler\.supabase\.com:(\d+)\/(.+)/);
+      if (!urlMatch) {
+        console.error('❌ Não foi possível extrair informações da URL de conexão');
+        console.error('   DATABASE_URL:', process.env.DATABASE_URL?.replace(/:([^:@\/]+)@/, ':***@'));
+        console.error('   Connection URL:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
+        throw new Error('Não foi possível extrair informações da DATABASE_URL');
+      }
     }
     
-    const [, user, password, projectRef, port, database] = urlMatch;
+    const [, projectRefOrUser, password, , database] = urlMatch;
+    // Se extraiu da URL direta, user será 'postgres' e projectRef estará na posição 3
+    // Se extraiu da URL do pooler, projectRef já estará na posição 1
+    const projectRef = projectRefOrUser === 'postgres' ? urlMatch[3] : projectRefOrUser;
     
-    console.log('🌎 Tentando regiões alternativas após falha na sa-east-1 (São Paulo)...');
+    console.log('🌎 Tentando regiões alternativas...');
+    console.log('   Project Ref:', projectRef);
     
     for (const region of regions) {
       try {

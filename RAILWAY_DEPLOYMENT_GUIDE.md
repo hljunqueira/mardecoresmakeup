@@ -13,7 +13,7 @@ SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhY
 
 ### 🗄️ Database (Supavisor Pooler - IPv4 Compatible)
 ```bash
-DATABASE_URL=postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+DATABASE_URL=postgresql://postgres.wudcabcsxmahlufgsyop:ServidorMardecores2025@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 
 ### 🔧 Sistema
@@ -59,15 +59,29 @@ postgresql://postgres:senha@db.PROJECT_REF.supabase.co:5432/postgres
 
 ### ✅ Supavisor Session Mode (Recomendado)
 ```
-postgresql://postgres.PROJECT_REF:senha@aws-0-sa-east-1.pooler.supabase.com:5432/postgres
+postgresql://postgres.PROJECT_REF:senha@aws-0-us-east-1.pooler.supabase.com:5432/postgres
 ```
 - ✅ Suporta IPv4 + IPv6
 - ✅ Otimizado para apps persistentes
 - ✅ Gerenciamento automático de conexões
 - ✅ Compatible com Railway
-- 🇧🇷 Região: South America (São Paulo) - sa-east-1
+- 🌎 **Otimizado**: Railway us-east4 (Ohio) → Supabase us-east-1 (Virginia)
 
-## 🚀 Deploy Steps
+## 🌎 Otimização de Regiões
+
+### Railway Deploy Region: `us-east4` (Ohio)
+
+- 🛫 **Railway Server**: AWS us-east-2 (Ohio)
+- 📊 **Supabase Pooler**: AWS us-east-1 (Virginia)
+- ⚡ **Latência**: ~5-10ms entre regiões próximas
+- 🔄 **Fallback**: sa-east-1, eu-west-1, us-east-2
+
+### Por que us-east-1?
+
+1. **Proximidade**: Virginia é próxima de Ohio (mesma costa leste)
+2. **Estabilidade**: us-east-1 é a região mais estável da AWS
+3. **Latência**: Menor latência de rede entre data centers
+4. **Compatibilidade**: Melhor para conectividade cross-region
 
 1. **Fork & Connect**: Conectar repositório GitHub ao Railway
 2. **Set Variables**: Configurar todas as variáveis acima
@@ -78,9 +92,9 @@ postgresql://postgres.PROJECT_REF:senha@aws-0-sa-east-1.pooler.supabase.com:5432
 
 ### Erro: "Tenant or user not found"
 - ✅ Verificar formato: `postgres.PROJECT_REF:senha`
-- ✅ Confirmar região do pooler: `aws-0-sa-east-1` (South America - São Paulo)
+- ✅ Confirmar região do pooler: `aws-0-us-east-1` (otimizado para Railway)
 - ✅ Testar credenciais localmente
-- ✅ Tentar outras regiões se necessário: `us-east-1`, `eu-west-1`
+- ✅ Fallback automático: `sa-east-1`, `eu-west-1`, `us-east-2`
 
 ### Erro: "getaddrinfo ENOTFOUND"
 - ✅ Usar URL do pooler (não conexão direta)
