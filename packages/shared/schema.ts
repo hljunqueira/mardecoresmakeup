@@ -136,6 +136,24 @@ export const stockHistory = pgTable("stock_history", {
   dateIdx: index("stock_history_date_idx").on(table.createdAt),
 }));
 
+// Nova tabela: Reservas de produtos
+export const reservations = pgTable("reservations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  productId: varchar("product_id").notNull(),
+  customerName: text("customer_name").notNull(),
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  paymentDate: timestamp("payment_date").notNull(), // Data prevista de pagamento
+  status: text("status").default("active"), // 'active' | 'sold' | 'cancelled' | 'returned'
+  notes: text("notes"), // Observações da reserva
+  createdAt: timestamp("created_at").defaultNow(),
+  completedAt: timestamp("completed_at"), // Data quando foi finalizada
+}, (table) => ({
+  productIdx: index("reservations_product_idx").on(table.productId),
+  statusIdx: index("reservations_status_idx").on(table.status),
+  paymentDateIdx: index("reservations_payment_date_idx").on(table.paymentDate),
+}));
+
 // Nova tabela: Analytics/Métricas
 export const analytics = pgTable("analytics", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -422,6 +440,12 @@ export const insertCouponUsageSchema = createInsertSchema(couponUsage).omit({
   usedAt: true,
 });
 
+export const insertReservationSchema = createInsertSchema(reservations).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
 // ========== TYPES PARA NOVAS TABELAS ==========
 
 export type Customer = typeof customers.$inferSelect;
@@ -447,3 +471,6 @@ export type InsertProductReview = z.infer<typeof insertProductReviewSchema>;
 
 export type CouponUsage = typeof couponUsage.$inferSelect;
 export type InsertCouponUsage = z.infer<typeof insertCouponUsageSchema>;
+
+export type Reservation = typeof reservations.$inferSelect;
+export type InsertReservation = z.infer<typeof insertReservationSchema>;

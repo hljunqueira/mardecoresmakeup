@@ -17,6 +17,8 @@ import type {
   InsertSiteView,
   Analytics,
   InsertAnalytics,
+  Reservation,
+  InsertReservation,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -69,6 +71,13 @@ export interface IStorage {
   createSupplier(supplier: InsertSupplier): Promise<Supplier>;
   updateSupplier(id: string, supplier: Partial<Supplier>): Promise<Supplier | undefined>;
   deleteSupplier(id: string): Promise<boolean>;
+
+  // Reservation operations
+  getAllReservations(): Promise<Reservation[]>;
+  getReservation(id: string): Promise<Reservation | undefined>;
+  createReservation(reservation: InsertReservation): Promise<Reservation>;
+  updateReservation(id: string, reservation: Partial<Reservation>): Promise<Reservation | undefined>;
+  deleteReservation(id: string): Promise<boolean>;
 
   // Site Views operations
   recordSiteView(view: InsertSiteView): Promise<SiteView>;

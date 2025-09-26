@@ -2,7 +2,22 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
+    let text: string;
+    try {
+      const contentType = res.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await res.json();
+        text = errorData.message || JSON.stringify(errorData);
+      } else {
+        text = await res.text();
+        // Se a resposta contém HTML, é provavelmente um erro de roteamento
+        if (text.includes('<!DOCTYPE')) {
+          text = `Route not found: ${res.url}. Status: ${res.status}`;
+        }
+      }
+    } catch (e) {
+      text = res.statusText || `HTTP ${res.status}`;
+    }
     throw new Error(`${res.status}: ${text}`);
   }
 }

@@ -13,6 +13,7 @@ import ProductDetail from "@/pages/product-detail";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminProducts from "@/pages/admin/products";
+import AdminReservations from "@/pages/admin/reservations";
 import AdminCollections from "@/pages/admin/collections";
 import AdminCoupons from "@/pages/admin/coupons";
 import AdminFinancial from "@/pages/admin/financial";
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/produtos" component={AdminProducts} />
+      <Route path="/admin/reservas" component={AdminReservations} />
       <Route path="/admin/colecoes" component={AdminCollections} />
       <Route path="/admin/cupons" component={AdminCoupons} />
       <Route path="/admin/financeiro" component={AdminFinancial} />

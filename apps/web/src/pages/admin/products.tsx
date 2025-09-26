@@ -26,6 +26,8 @@ import { Plus, Edit, Trash2, Package, Star, AlertTriangle, Eye, EyeOff, Search, 
 import type { Product, InsertProduct } from "@shared/schema";
 import { CATEGORIES, PRODUCT_TAGS } from "@/lib/constants";
 import { StockReductionConfirm } from "@/components/ui/stock-reduction-confirm";
+import { ReservationModal } from "@/components/ui/reservation-modal";
+import { ReservationManageModal } from "@/components/ui/reservation-manage-modal";
 import { SaleReversalConfirm } from "@/components/ui/sale-reversal-confirm";
 
 const productSchema = z.object({
@@ -55,16 +57,36 @@ export default function AdminProducts() {
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
   const {    
+    // Dialogs de venda direta
     isConfirmDialogOpen,
-    isRevertDialogOpen,
     pendingUpdate,
-    pendingRevert,
-    handleStockReduction,
     confirmStockReduction,
     cancelStockReduction,
+    handleStockReduction,
+    
+    // Dialogs de reserva
+    isReservationDialogOpen,
+    pendingReservation,
+    openReservationDialog,
+    confirmReservation,
+    cancelReservation,
+    
+    // Dialogs de gerenciamento de reserva
+    isReservationManageDialogOpen,
+    currentReservation,
+    openReservationManageDialog,
+    confirmReservationSale,
+    returnReservationToStock,
+    deleteReservation,
+    cancelReservationManage,
+    
+    // Dialogs de reversão
+    isRevertDialogOpen,
+    pendingRevert,
     handleRevertSale,
     confirmSaleReversal,
     cancelSaleReversal,
+    
     isLoading: isStockUpdateLoading,
   } = useStockUpdate();
 
@@ -842,11 +864,36 @@ export default function AdminProducts() {
       <StockReductionConfirm
         isOpen={isConfirmDialogOpen}
         onConfirm={confirmStockReduction}
+        onReserve={openReservationDialog}
         onCancel={cancelStockReduction}
         isLoading={isStockUpdateLoading}
         product={pendingUpdate?.product || null}
         quantitySold={pendingUpdate?.quantitySold || 0}
         newStock={pendingUpdate?.newStock || 0}
+      />
+
+      {/* Reservation Modal */}
+      <ReservationModal
+        isOpen={isReservationDialogOpen}
+        onReserve={confirmReservation}
+        onCancel={cancelReservation}
+        isLoading={isStockUpdateLoading}
+        product={pendingReservation?.product || null}
+        quantityReserved={pendingReservation?.quantity || 0}
+        newStock={pendingReservation?.newStock || 0}
+        maxQuantity={pendingReservation?.product?.stock || 0}
+      />
+
+      {/* Reservation Management Modal */}
+      <ReservationManageModal
+        isOpen={isReservationManageDialogOpen}
+        onConfirmSale={confirmReservationSale}
+        onReturnToStock={returnReservationToStock}
+        onDeleteReservation={deleteReservation}
+        onCancel={cancelReservationManage}
+        isLoading={isStockUpdateLoading}
+        product={currentReservation?.product || null}
+        reservation={currentReservation?.reservation || null}
       />
       
       {/* Sale Reversal Confirmation Modal */}
@@ -859,6 +906,7 @@ export default function AdminProducts() {
         quantity={pendingRevert?.quantity || 0}
         transaction={pendingRevert?.transaction || null}
       />
+
     </div>
   );
 }

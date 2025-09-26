@@ -27,6 +27,8 @@ import type {
   InsertSiteView,
   Analytics,
   InsertAnalytics,
+  Reservation,
+  InsertReservation,
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
@@ -591,5 +593,44 @@ export class SupabaseStorage implements IStorage {
       thisWeek: thisWeekViews,
       thisMonth: thisMonthViews
     };
+  }
+
+  // Reservation operations
+  async getAllReservations(): Promise<Reservation[]> {
+    return await db.select().from(schema.reservations).orderBy(schema.reservations.createdAt);
+  }
+
+  async getReservation(id: string): Promise<Reservation | undefined> {
+    const result = await db.select().from(schema.reservations)
+      .where(eq(schema.reservations.id, id));
+    return result[0];
+  }
+
+  async createReservation(reservation: InsertReservation): Promise<Reservation> {
+    const result = await db.insert(schema.reservations).values({
+      ...reservation,
+      createdAt: new Date()
+    }).returning();
+    return result[0];
+  }
+
+  async updateReservation(id: string, reservation: Partial<Reservation>): Promise<Reservation | undefined> {
+    const result = await db.update(schema.reservations)
+      .set(reservation)
+      .where(eq(schema.reservations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteReservation(id: string): Promise<boolean> {
+    console.log('🔍 STORAGE: Tentando deletar reserva com ID:', id);
+    const result = await db.delete(schema.reservations)
+      .where(eq(schema.reservations.id, id))
+      .returning();
+    console.log('🔍 STORAGE: Resultado da query delete:', result);
+    console.log('🔍 STORAGE: length:', result.length);
+    const success = result.length > 0;
+    console.log('🔍 STORAGE: Retornando success:', success);
+    return success;
   }
 }

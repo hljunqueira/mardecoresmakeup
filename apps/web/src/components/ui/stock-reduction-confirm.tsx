@@ -13,6 +13,7 @@ import type { Product } from "@shared/schema";
 interface StockReductionConfirmProps {
   isOpen: boolean;
   onConfirm: () => void;
+  onReserve: () => void;
   onCancel: () => void;
   isLoading: boolean;
   product: Product | null;
@@ -23,6 +24,7 @@ interface StockReductionConfirmProps {
 export function StockReductionConfirm({
   isOpen,
   onConfirm,
+  onReserve,
   onCancel,
   isLoading,
   product,
@@ -51,9 +53,9 @@ export function StockReductionConfirm({
               <AlertTriangle className="h-5 w-5 text-orange-600" />
             </div>
             <div>
-              <DialogTitle className="text-lg">Confirmar Redução de Estoque</DialogTitle>
+              <DialogTitle className="text-lg">Redução de Estoque</DialogTitle>
               <DialogDescription id="stock-reduction-description" className="text-sm text-muted-foreground">
-                Esta ação registrará automaticamente uma venda
+                Escolha como processar esta redução de estoque
               </DialogDescription>
             </div>
           </div>
@@ -104,29 +106,43 @@ export function StockReductionConfirm({
 
           {/* Aviso */}
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 backdrop-blur-sm border border-blue-200/50 rounded-lg p-3">
-            <p className="text-sm text-blue-800">
-              💡 <strong>Esta ação irá:</strong>
+            <p className="text-sm text-blue-800 font-medium mb-2">
+              📝 Escolha uma opção:
             </p>
-            <ul className="mt-2 text-xs text-blue-700 space-y-1 ml-4">
-              <li>• Reduzir o estoque de {previousStock} para {newStock} unidades</li>
-              <li>• Registrar uma transação de receita de {formatCurrency(totalAmount)}</li>
-              <li>• Atualizar automaticamente seu saldo financeiro</li>
-            </ul>
+            <div className="space-y-2 text-xs text-blue-700">
+              <div className="flex items-start space-x-2">
+                <span className="font-semibold text-green-600">• Venda:</span>
+                <span>Registra a transação financeira imediatamente</span>
+              </div>
+              <div className="flex items-start space-x-2">
+                <span className="font-semibold text-orange-600">• Reserva:</span>
+                <span>Reduz estoque sem registrar venda ainda</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <DialogFooter className="space-x-2">
+        <DialogFooter className="flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-2">
           <Button
             variant="outline"
             onClick={onCancel}
             disabled={isLoading}
+            className="w-full sm:w-auto"
           >
             Cancelar
           </Button>
           <Button
+            onClick={onReserve}
+            disabled={isLoading}
+            variant="outline"
+            className="w-full sm:w-auto bg-gradient-to-r from-orange-50 to-yellow-50 border-orange-300 text-orange-700 hover:from-orange-100 hover:to-yellow-100 hover:border-orange-400"
+          >
+            {isLoading ? "Processando..." : "Fazer Reserva"}
+          </Button>
+          <Button
             onClick={onConfirm}
             disabled={isLoading}
-            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+            className="w-full sm:w-auto bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl transition-all duration-300"
           >
             {isLoading ? "Processando..." : "Confirmar Venda"}
           </Button>

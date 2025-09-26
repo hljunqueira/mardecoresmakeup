@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Product } from "@shared/schema";
+import type { Product, Reservation } from "@shared/schema";
 
 interface StockUpdateData {
   productId: string;
@@ -19,6 +19,14 @@ interface SaleTransactionData {
   totalAmount: number;
 }
 
+interface ReservationData {
+  productId: string;
+  customerName: string;
+  quantity: number;
+  unitPrice: string; // Decimal fields use string in Drizzle
+  paymentDate: Date; // Timestamp fields use Date
+}
+
 interface SaleReversalData {
   transactionId: string;
   productId: string;
@@ -28,11 +36,22 @@ interface SaleReversalData {
 
 export function useStockUpdate() {
   const [isConfirmDialogOpen, setIsConfirmDialogOpen] = useState(false);
+  const [isReservationDialogOpen, setIsReservationDialogOpen] = useState(false);
+  const [isReservationManageDialogOpen, setIsReservationManageDialogOpen] = useState(false);
   const [isRevertDialogOpen, setIsRevertDialogOpen] = useState(false);
   const [pendingUpdate, setPendingUpdate] = useState<{
     product: Product;
     newStock: number;
     quantitySold: number;
+  } | null>(null);
+  const [pendingReservation, setPendingReservation] = useState<{
+    product: Product;
+    newStock: number;
+    quantity: number;
+  } | null>(null);
+  const [currentReservation, setCurrentReservation] = useState<{
+    product: Product;
+    reservation: Reservation;
   } | null>(null);
   const [pendingRevert, setPendingRevert] = useState<{
     product: Product;
@@ -67,6 +86,143 @@ export function useStockUpdate() {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+    },
+  });
+
+  const createReservationMutation = useMutation({
+    mutationFn: async (reservationData: ReservationData) => {
+      const response = await apiRequest("POST", "/api/admin/reservations", reservationData);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+    },
+  });
+
+  const confirmReservationSaleMutation = useMutation({
+    mutationFn: async ({ reservationId, productData }: { reservationId: string, productData: SaleTransactionData }) => {
+      // 1. Criar transação de venda
+      const transactionResponse = await apiRequest("POST", "/api/admin/transactions", {
+        type: 'income' as const,
+        amount: productData.totalAmount.toString(),
+        description: `Venda - ${productData.productName} (${productData.quantity}x) - Reserva Confirmada`,
+        category: 'Vendas',
+        status: 'completed',
+        metadata: {
+          productId: productData.productId,
+          productName: productData.productName,
+          quantity: productData.quantity,
+          unitPrice: productData.unitPrice,
+          type: 'reservation_sale',
+          reservationId: reservationId,
+          reversible: true
+        }
+      });
+      
+      // 2. Marcar reserva como vendida
+      const reservationResponse = await apiRequest("PUT", `/api/admin/reservations/${reservationId}`, {
+        status: 'sold'
+        // Removido completedAt para evitar erro de conversao de data
+      });
+      
+      return { transaction: await transactionResponse.json(), reservation: await reservationResponse.json() };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+    },
+  });
+
+  const returnReservationToStockMutation = useMutation({
+    mutationFn: async ({ reservationId, productId, quantity }: { reservationId: string, productId: string, quantity: number }) => {
+      console.log('🔍 returnReservationToStockMutation - Dados recebidos:', { reservationId, productId, quantity });
+      
+      try {
+        // 1. Devolver ao estoque
+        console.log('📦 Buscando produto atual...');
+        const currentProduct = await apiRequest("GET", `/api/admin/products/${productId}`);
+        console.log('📦 Resposta do produto recebida, fazendo parsing JSON...');
+        const productData = await currentProduct.json();
+        const newStock = (productData.stock || 0) + quantity;
+        
+        console.log('📦 Produto atual:', productData);
+        console.log('📊 Novo estoque calculado:', newStock);
+        
+        console.log('📦 Atualizando estoque do produto...');
+        await apiRequest("PUT", `/api/admin/products/${productId}`, {
+          stock: newStock
+        });
+        console.log('✅ Estoque atualizado com sucesso');
+        
+        // 2. Marcar reserva como devolvida
+        console.log('🔄 Marcando reserva como devolvida...');
+        const reservationResponse = await apiRequest("PUT", `/api/admin/reservations/${reservationId}`, {
+          status: 'returned'
+          // Removido completedAt para evitar erro de conversao de data
+        });
+        
+        console.log('✅ Reserva marcada como devolvida');
+        return await reservationResponse.json();
+      } catch (error) {
+        console.error('❌ Erro detalhado na mutation:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      console.log('✅ returnReservationToStockMutation - Sucesso');
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+    },
+    onError: (error) => {
+      console.error('❌ returnReservationToStockMutation - Erro:', error);
+    },
+  });
+
+  const deleteReservationMutation = useMutation({
+    mutationFn: async ({ reservationId, productId, quantity }: { reservationId: string, productId: string, quantity: number }) => {
+      console.log('🔍 deleteReservationMutation - Dados recebidos:', { reservationId, productId, quantity });
+      
+      try {
+        // 1. Devolver ao estoque
+        console.log('📦 Buscando produto atual...');
+        const currentProduct = await apiRequest("GET", `/api/admin/products/${productId}`);
+        console.log('📦 Resposta do produto recebida, fazendo parsing JSON...');
+        const productData = await currentProduct.json();
+        const newStock = (productData.stock || 0) + quantity;
+        
+        console.log('📦 Produto atual:', productData);
+        console.log('📊 Novo estoque calculado:', newStock);
+        
+        console.log('📦 Atualizando estoque do produto...');
+        await apiRequest("PUT", `/api/admin/products/${productId}`, {
+          stock: newStock
+        });
+        console.log('✅ Estoque atualizado com sucesso');
+        
+        // 2. Deletar reserva completamente
+        console.log('🗑️ Deletando reserva...');
+        await apiRequest("DELETE", `/api/admin/reservations/${reservationId}`);
+        
+        console.log('✅ Reserva deletada completamente');
+        return { success: true };
+      } catch (error) {
+        console.error('❌ Erro detalhado na mutation:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      console.log('✅ deleteReservationMutation - Sucesso');
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+    },
+    onError: (error) => {
+      console.error('❌ deleteReservationMutation - Erro:', error);
     },
   });
 
@@ -136,6 +292,177 @@ export function useStockUpdate() {
       quantitySold
     });
     setIsConfirmDialogOpen(true);
+  };
+
+  const openReservationDialog = () => {
+    if (!pendingUpdate) return;
+    
+    setPendingReservation({
+      product: pendingUpdate.product,
+      newStock: pendingUpdate.newStock,
+      quantity: pendingUpdate.quantitySold
+    });
+    setIsConfirmDialogOpen(false);
+    setIsReservationDialogOpen(true);
+  };
+
+  const confirmReservation = async (customerName: string, paymentDate: string, quantity: number = 1) => {
+    if (!pendingReservation) return;
+
+    const { product, newStock } = pendingReservation;
+    const unitPrice = parseFloat(product.price);
+
+    try {
+      // Calcular novo estoque baseado na quantidade selecionada
+      const currentStock = product.stock || 0;
+      const finalStock = currentStock - quantity;
+
+      // 1. Atualizar estoque
+      await updateStockMutation.mutateAsync({
+        productId: product.id,
+        newStock: finalStock,
+        previousStock: currentStock,
+        reason: 'reservation'
+      });
+
+      // 2. Criar reserva
+      await createReservationMutation.mutateAsync({
+        productId: product.id,
+        customerName,
+        quantity,
+        unitPrice: unitPrice.toString(), // Decimal field expects string
+        paymentDate: new Date(paymentDate) // Timestamp field expects Date
+      });
+
+      toast({
+        title: "Reserva criada!",
+        description: `${quantity}x ${product.name} reservado para ${customerName}. Data de pagamento: ${new Date(paymentDate).toLocaleDateString('pt-BR')}.`,
+        duration: 8000,
+      });
+
+      setIsReservationDialogOpen(false);
+      setPendingReservation(null);
+      setPendingUpdate(null);
+    } catch (error) {
+      toast({
+        title: "Erro ao criar reserva",
+        description: "Ocorreu um erro ao criar a reserva. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const cancelReservation = () => {
+    setIsReservationDialogOpen(false);
+    setPendingReservation(null);
+    setIsConfirmDialogOpen(true); // Volta para o diálogo de confirmação
+  };
+
+  const openReservationManageDialog = (product: Product, reservation: Reservation) => {
+    setCurrentReservation({ product, reservation });
+    setIsReservationManageDialogOpen(true);
+  };
+
+  const confirmReservationSale = async () => {
+    if (!currentReservation) return;
+
+    const { product, reservation } = currentReservation;
+    const totalAmount = reservation.quantity * parseFloat(reservation.unitPrice.toString());
+
+    try {
+      await confirmReservationSaleMutation.mutateAsync({
+        reservationId: reservation.id,
+        productData: {
+          productId: product.id,
+          productName: product.name,
+          quantity: reservation.quantity,
+          unitPrice: parseFloat(reservation.unitPrice.toString()),
+          totalAmount
+        }
+      });
+
+      toast({
+        title: "Venda confirmada!",
+        description: `Reserva de ${reservation.customerName} foi convertida em venda de ${new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        }).format(totalAmount)}.`,
+      });
+
+      setIsReservationManageDialogOpen(false);
+      setCurrentReservation(null);
+    } catch (error) {
+      toast({
+        title: "Erro ao confirmar venda",
+        description: "Ocorreu um erro ao confirmar a venda da reserva. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const returnReservationToStock = async () => {
+    if (!currentReservation) return;
+
+    const { product, reservation } = currentReservation;
+    console.log('🔄 returnReservationToStock - Iniciando:', { product: product.name, reservation: reservation.id, quantity: reservation.quantity });
+
+    try {
+      await returnReservationToStockMutation.mutateAsync({
+        reservationId: reservation.id,
+        productId: product.id,
+        quantity: reservation.quantity
+      });
+
+      toast({
+        title: "Produto devolvido ao estoque!",
+        description: `${reservation.quantity}x ${product.name} foi devolvido ao estoque disponível.`,
+      });
+
+      setIsReservationManageDialogOpen(false);
+      setCurrentReservation(null);
+    } catch (error) {
+      console.error('❌ returnReservationToStock - Erro capturado:', error);
+      toast({
+        title: "Erro ao devolver ao estoque",
+        description: "Ocorreu um erro ao devolver o produto ao estoque. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const deleteReservation = async () => {
+    if (!currentReservation) return;
+
+    const { product, reservation } = currentReservation;
+    console.log('🗑️ deleteReservation - Iniciando:', { product: product.name, reservation: reservation.id, quantity: reservation.quantity });
+
+    try {
+      await deleteReservationMutation.mutateAsync({
+        reservationId: reservation.id,
+        productId: product.id,
+        quantity: reservation.quantity
+      });
+
+      toast({
+        title: "Reserva excluída!",
+        description: `Reserva de ${reservation.customerName} foi excluída e ${reservation.quantity}x ${product.name} foi devolvido ao estoque.`,
+      });
+
+      setIsReservationManageDialogOpen(false);
+      setCurrentReservation(null);
+    } catch (error) {
+      console.error('❌ deleteReservation - Erro capturado:', error);
+      toast({
+        title: "Erro ao excluir reserva",
+        description: "Ocorreu um erro ao excluir a reserva. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const cancelReservationManage = () => {
+    setIsReservationManageDialogOpen(false);
+    setCurrentReservation(null);
   };
 
   const confirmStockReduction = async () => {
@@ -246,16 +573,43 @@ export function useStockUpdate() {
   };
 
   return {
+    // Dialogs de venda direta
     isConfirmDialogOpen,
-    isRevertDialogOpen,
     pendingUpdate,
-    pendingRevert,
     handleStockReduction,
     confirmStockReduction,
     cancelStockReduction,
+    
+    // Dialogs de reserva
+    isReservationDialogOpen,
+    pendingReservation,
+    openReservationDialog,
+    confirmReservation,
+    cancelReservation,
+    
+    // Dialogs de gerenciamento de reserva
+    isReservationManageDialogOpen,
+    currentReservation,
+    openReservationManageDialog,
+    confirmReservationSale,
+    returnReservationToStock,
+    deleteReservation,
+    cancelReservationManage,
+    
+    // Dialogs de reversão
+    isRevertDialogOpen,
+    pendingRevert,
     handleRevertSale,
     confirmSaleReversal,
     cancelSaleReversal,
-    isLoading: updateStockMutation.isPending || createSaleTransactionMutation.isPending || revertSaleMutation.isPending,
+    
+    // Estado de loading
+    isLoading: updateStockMutation.isPending || 
+               createSaleTransactionMutation.isPending || 
+               createReservationMutation.isPending ||
+               confirmReservationSaleMutation.isPending ||
+               returnReservationToStockMutation.isPending ||
+               deleteReservationMutation.isPending ||
+               revertSaleMutation.isPending,
   };
 }

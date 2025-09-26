@@ -12,15 +12,11 @@ import { apiRequest } from "@/lib/queryClient";
 import { 
   BarChart3, 
   TrendingUp, 
-  TrendingDown, 
   Package, 
   ShoppingCart, 
   DollarSign,
-  Users,
-  Eye,
   Calendar,
-  Download,
-  Filter
+  Download
 } from "lucide-react";
 import type { Product } from "@shared/schema";
 
@@ -28,7 +24,9 @@ interface ReportData {
   totalSales: number;
   totalRevenue: number;
   totalProducts: number;
-  totalCustomers: number;
+  totalReservations?: number;
+  activeReservations?: number;
+  reservedValue?: number;
   topProducts: Array<{
     product: Product;
     sales: number;
@@ -81,7 +79,6 @@ export default function AdminReports() {
         totalVendas: reportData.totalSales,
         receitaTotal: formatCurrency(reportData.totalRevenue),
         totalProdutos: reportData.totalProducts,
-        clientesAtivos: reportData.totalCustomers,
         produtosEstoqueBaixo: reportData.lowStockProducts?.length || 0
       },
       topProdutos: reportData.topProducts?.map(item => ({
@@ -200,7 +197,7 @@ export default function AdminReports() {
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">Produtos Cadastrados</p>
+                        <p className="text-sm font-medium text-muted-foreground">Produtos</p>
                         <p className="text-2xl font-bold">{reportData?.totalProducts}</p>
                         <p className="text-xs text-blue-600 flex items-center">
                           <Package className="h-3 w-3 mr-1" />
@@ -216,14 +213,14 @@ export default function AdminReports() {
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-muted-foreground">Clientes Ativos</p>
-                        <p className="text-2xl font-bold">{reportData?.totalCustomers}</p>
-                        <p className="text-xs text-purple-600 flex items-center">
-                          <Users className="h-3 w-3 mr-1" />
-                          +15% vs período anterior
+                        <p className="text-sm font-medium text-muted-foreground">Reservas</p>
+                        <p className="text-2xl font-bold">{reportData?.totalReservations || 0}</p>
+                        <p className="text-xs text-indigo-600 flex items-center">
+                          <Calendar className="h-3 w-3 mr-1" />
+                          {reportData?.activeReservations || 0} ativas
                         </p>
                       </div>
-                      <Users className="h-8 w-8 text-purple-500" />
+                      <Calendar className="h-8 w-8 text-indigo-500" />
                     </div>
                   </CardContent>
                 </Card>

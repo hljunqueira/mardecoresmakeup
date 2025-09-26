@@ -20,9 +20,10 @@ import {
   CheckCircle,
   ArrowRight,
   BarChart3,
-  Plus
+  Plus,
+  Calendar
 } from "lucide-react";
-import type { Product, FinancialTransaction, Collection } from "@shared/schema";
+import type { Product, FinancialTransaction, Collection, Reservation } from "@shared/schema";
 
 interface FinancialSummary {
   totalRevenue: number;
@@ -67,6 +68,11 @@ export default function AdminDashboard() {
 
   const { data: collections, isLoading: collectionsLoading } = useQuery<Collection[]>({
     queryKey: ["/api/admin/collections"],
+    enabled: isAuthenticated,
+  });
+
+  const { data: reservations, isLoading: reservationsLoading } = useQuery<Reservation[]>({
+    queryKey: ["/api/admin/reservations"],
     enabled: isAuthenticated,
   });
 
@@ -115,6 +121,17 @@ export default function AdminDashboard() {
   
   const totalCollections = collections?.length || 0;
   const activeCollections = collections?.filter(c => c.active !== false).length || 0;
+  
+  // Estatísticas de reservas
+  const totalReservations = reservations?.length || 0;
+  const activeReservations = reservations?.filter(r => r.status === 'active').length || 0;
+  const soldReservations = reservations?.filter(r => r.status === 'sold').length || 0;
+  const totalReservedValue = reservations?.reduce((sum, r) => {
+    if (r.status === 'active') {
+      return sum + (r.quantity * parseFloat(r.unitPrice.toString()));
+    }
+    return sum;
+  }, 0) || 0;
   
   const recentProducts = products?.slice(0, 3) || [];
   const recentTransactions = transactions?.slice(0, 4) || [];
@@ -169,7 +186,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Cards de Resumo Melhorados */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
             <Card className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
               <CardContent className="p-6 relative z-10">
@@ -260,6 +277,29 @@ export default function AdminDashboard() {
                   </div>
                   <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
                     <TrendingUp className="h-7 w-7 text-white" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="relative overflow-hidden bg-gradient-to-br from-indigo-500 via-indigo-600 to-indigo-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+              <CardContent className="p-6 relative z-10">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-indigo-100 text-sm font-medium mb-1">Reservas</p>
+                    <p className="text-3xl font-bold text-white mb-2">{totalReservations}</p>
+                    <div className="flex items-center space-x-2">
+                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
+                        {activeReservations} ativas
+                      </Badge>
+                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
+                        {formatCurrency(totalReservedValue)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+                    <Calendar className="h-7 w-7 text-white" />
                   </div>
                 </div>
               </CardContent>
@@ -502,6 +542,15 @@ export default function AdminDashboard() {
                 >
                   <Package className="h-4 w-4 mr-3" />
                   Adicionar Produto
+                </Button>
+                
+                <Button 
+                  onClick={() => setLocation("/admin/reservas")}
+                  className="w-full justify-start bg-white border border-petrol-200 text-petrol-700 hover:bg-petrol-50 hover:border-petrol-300 transition-all duration-300"
+                  variant="outline"
+                >
+                  <Calendar className="h-4 w-4 mr-3" />
+                  Ver Reservas
                 </Button>
                 
                 <Button 

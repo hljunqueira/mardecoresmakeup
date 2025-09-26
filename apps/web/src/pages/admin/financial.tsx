@@ -363,6 +363,33 @@ export default function AdminFinancial() {
     return dateObj.toLocaleDateString('pt-BR');
   };
 
+  const getTransactionIcon = (transaction: FinancialTransaction) => {
+    if (transaction.type === 'income') {
+      // Verificar se é uma venda de reserva
+      if (transaction.metadata && typeof transaction.metadata === 'object') {
+        const metadata = transaction.metadata as any;
+        if (metadata.type === 'reservation_sale') {
+          return <Calendar className="h-5 w-5 text-green-600" />;
+        }
+      }
+      return <TrendingUp className="h-5 w-5 text-green-600" />;
+    }
+    return <TrendingDown className="h-5 w-5 text-red-600" />;
+  };
+
+  const getTransactionBadge = (transaction: FinancialTransaction) => {
+    if (transaction.metadata && typeof transaction.metadata === 'object') {
+      const metadata = transaction.metadata as any;
+      if (metadata.type === 'reservation_sale') {
+        return <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-xs">Reserva</Badge>;
+      }
+      if (metadata.type === 'product_sale') {
+        return <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">Venda</Badge>;
+      }
+    }
+    return null;
+  };
+
   if (!isAuthenticated) {
     return null;
   }
@@ -636,14 +663,13 @@ export default function AdminFinancial() {
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
                               transaction.type === "income" ? "bg-green-100 dark:bg-green-900/20" : "bg-red-100 dark:bg-red-900/20"
                             }`}>
-                              {transaction.type === "income" ? (
-                                <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
-                              ) : (
-                                <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
-                              )}
+                              {getTransactionIcon(transaction)}
                             </div>
                             <div>
-                              <p className="font-medium">{transaction.description}</p>
+                              <div className="flex items-center space-x-2">
+                                <p className="font-medium">{transaction.description}</p>
+                                {getTransactionBadge(transaction)}
+                              </div>
                               <div className="flex items-center space-x-2 text-sm text-muted-foreground">
                                 <span>{transaction.category}</span>
                                 <span>•</span>

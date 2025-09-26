@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema } from "@shared/schema";
+import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema } from "@shared/schema";
 import { z } from "zod";
 import * as crypto from "crypto";
 import { upload, imageUploadService } from "./upload-service";
@@ -346,6 +346,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/admin/products/:id", async (req, res) => {
+    try {
+      const product = await storage.getProduct(req.params.id);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      res.json(product);
+    } catch (error) {
+      res.status(500).json({ message: "Failed to fetch product" });
+    }
+  });
+
   app.post("/api/admin/products", async (req, res) => {
     try {
       const productData = insertProductSchema.parse(req.body);
@@ -409,6 +421,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('❌ Erro ao deletar produto:', error);
       res.status(500).json({ message: "Failed to delete product" });
+    }
+  });
+
+  // Admin reservation routes
+  app.get("/api/admin/reservations", async (req, res) => {
+    try {
+      const reservations = await storage.getAllReservations();
+      res.json(reservations);
+    } catch (error) {
+      console.error('❌ Erro ao buscar reservas:', error);
+      res.status(500).json({ message: "Failed to fetch reservations" });
+    }
+  });
+
+  // Admin reservations routes
+  app.get("/api/admin/reservations", async (req, res) => {
+    try {
+      const reservations = await storage.getAllReservations();
+      res.json(reservations);
+    } catch (error) {
+      console.error('❌ Erro ao buscar reservas:', error);
+      res.status(500).json({ message: "Failed to fetch reservations" });
+    }
+  });
+
+  app.post("/api/admin/reservations", async (req, res) => {
+    try {
+      console.log('🔍 POST /api/admin/reservations - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      console.log('🔍 Tipos dos dados:', {
+        productId: typeof req.body.productId,
+        customerName: typeof req.body.customerName,
+        quantity: typeof req.body.quantity,
+        unitPrice: typeof req.body.unitPrice,
+        paymentDate: typeof req.body.paymentDate
+      });
+      
+      // Schema customizado para aceitar os tipos do frontend
+      const frontendReservationSchema = z.object({
+        productId: z.string(),
+        customerName: z.string(),
+        quantity: z.number(),
+        unitPrice: z.string(), // unitPrice já vem como string do frontend
+        paymentDate: z.coerce.date(), // Força conversão para Date
+        status: z.string().default('active').optional(),
+        notes: z.string().optional()
+      });
+
+      console.log('🧪 Testando validação do schema...');
+      const validatedData = frontendReservationSchema.parse(req.body);
+      console.log('✅ Dados validados com sucesso:', JSON.stringify(validatedData, null, 2));
+      
+      const reservation = await storage.createReservation(validatedData);
+      console.log('✅ Reserva criada com sucesso:', reservation.id);
+      
+      res.status(201).json(reservation);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        console.log('❌ Erro de validação Zod:', JSON.stringify(error.errors, null, 2));
+        return res.status(400).json({ message: "Invalid reservation data", errors: error.errors });
+      }
+      console.log('❌ Erro ao criar reserva:', error);
+      res.status(500).json({ message: "Failed to create reservation" });
+    }
+  });
+
+  app.put("/api/admin/reservations/:id", async (req, res) => {
+    try {
+      console.log('🔍 PUT /api/admin/reservations - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      // Converter campos de data se necessário
+      const updateData = { ...req.body };
+      if (updateData.completedAt && typeof updateData.completedAt === 'string') {
+        updateData.completedAt = new Date(updateData.completedAt);
+      }
+      if (updateData.paymentDate && typeof updateData.paymentDate === 'string') {
+        updateData.paymentDate = new Date(updateData.paymentDate);
+      }
+      
+      const reservation = await storage.updateReservation(req.params.id, updateData);
+      if (!reservation) {
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+      
+      console.log('✅ Reserva atualizada com sucesso:', reservation.id);
+      res.json(reservation);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar reserva:', error);
+      res.status(500).json({ message: "Failed to update reservation" });
+    }
+  });
+
+  app.delete("/api/admin/reservations/:id", async (req, res) => {
+    try {
+      console.log('🗑️ Tentando deletar reserva:', req.params.id);
+      const deleted = await storage.deleteReservation(req.params.id);
+      console.log('🗑️ Resultado da deleção:', deleted);
+      if (!deleted) {
+        console.log('❌ Reserva não encontrada para deleção:', req.params.id);
+        return res.status(404).json({ message: "Reservation not found" });
+      }
+      
+      console.log('✅ Reserva deletada:', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Erro ao deletar reserva:', error);
+      res.status(500).json({ message: "Failed to delete reservation" });
     }
   });
 
@@ -734,6 +852,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Buscar dados reais dos produtos
       const products = await storage.getAllProducts();
       const transactions = await storage.getAllTransactions();
+      const reservations = await storage.getAllReservations();
       const coupons = await storage.getAllCoupons();
       const siteViewsStats = await storage.getSiteViewsStats();
       
@@ -745,6 +864,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const totalExpenses = transactions
         .filter(t => t.type === "expense" && t.status === "completed")
         .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      // Estatísticas de reservas
+      const totalReservations = reservations.length;
+      const activeReservations = reservations.filter(r => r.status === 'active').length;
+      const soldReservations = reservations.filter(r => r.status === 'sold').length;
+      const reservedValue = reservations
+        .filter(r => r.status === 'active')
+        .reduce((sum, r) => sum + (r.quantity * parseFloat(r.unitPrice.toString())), 0);
       
       // Produtos com estoque baixo
       const lowStockProducts = products.filter(p => 
@@ -852,7 +979,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalSales: salesTransactions.length,
         totalRevenue: totalRevenue,
         totalProducts: products.length,
-        totalCustomers: 0, // TODO: implementar quando tiver tabela de clientes
+        totalReservations,
+        activeReservations,
+        soldReservations, 
+        reservedValue,
         totalViews: siteViewsStats.total,
         viewsToday: siteViewsStats.today,
         viewsThisWeek: siteViewsStats.thisWeek,
