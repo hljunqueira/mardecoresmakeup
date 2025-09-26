@@ -19,6 +19,9 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  console.log('🛠️ Configurando Vite...');
+  console.log('📁 Root do Vite:', path.resolve(process.cwd(), "apps", "web"));
+  
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -26,7 +29,7 @@ export async function setupVite(app: Express, server: Server) {
   };
 
   const vite = await createViteServer({
-    configFile: false,
+    configFile: path.resolve(process.cwd(), "vite.config.ts"),
     root: path.resolve(process.cwd(), "apps", "web"),
     resolve: {
       alias: {
@@ -38,17 +41,22 @@ export async function setupVite(app: Express, server: Server) {
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
+        console.error('❌ Vite Error:', msg);
         viteLogger.error(msg, options);
-        process.exit(1);
       },
     },
     server: serverOptions,
     appType: "custom",
   });
 
+  console.log('✅ Vite server criado com sucesso');
+  
   app.use(vite.middlewares);
+  console.log('✅ Middleware do Vite adicionado ao Express');
+  
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+    console.log('🔄 Processando requisição:', url);
 
     try {
       const clientTemplate = path.resolve(
@@ -57,6 +65,8 @@ export async function setupVite(app: Express, server: Server) {
         "web",
         "index.html",
       );
+      
+      console.log('📄 Lendo template de:', clientTemplate);
 
       // always reload the index.html file from disk incase it changes
       let template = await fs.promises.readFile(clientTemplate, "utf-8");
@@ -64,13 +74,20 @@ export async function setupVite(app: Express, server: Server) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
+      
+      console.log('🔄 Transformando HTML com Vite...');
       const page = await vite.transformIndexHtml(url, template);
+      console.log('✅ HTML transformado, enviando resposta');
+      
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
+      console.error('❌ Erro ao processar requisição:', e);
       vite.ssrFixStacktrace(e as Error);
       next(e);
     }
   });
+  
+  console.log('✅ Vite configurado completamente!');
 }
 
 export function serveStatic(app: Express) {

@@ -86,6 +86,7 @@ export const financialTransactions = pgTable("financial_transactions", {
   status: text("status").default("pending"), // 'pending' | 'completed' | 'cancelled'
   paymentMethod: text("payment_method"), // 'cash' | 'card' | 'pix' | 'bank_transfer'
   reference: text("reference"), // Número de nota fiscal, recibo, etc.
+  metadata: jsonb("metadata"), // Dados extras em JSON para vendas reversíveis
   supplierId: varchar("supplier_id"), // FK para suppliers
   dueDate: timestamp("due_date"),
   createdAt: timestamp("created_at").defaultNow(),

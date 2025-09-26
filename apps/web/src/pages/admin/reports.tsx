@@ -322,56 +322,6 @@ export default function AdminReports() {
               </CardContent>
             </Card>
           </div>
-
-          {/* Produtos com Estoque Baixo */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <Eye className="h-5 w-5 mr-2" />
-                Alertas de Estoque
-                {reportData?.lowStockProducts?.length ? (
-                  <Badge variant="destructive" className="ml-2">
-                    {reportData.lowStockProducts.length}
-                  </Badge>
-                ) : null}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <Skeleton className="h-32 w-full" />
-              ) : reportData?.lowStockProducts?.length ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {reportData.lowStockProducts.map((product) => (
-                    <div key={product.id} className="border rounded-lg p-4">
-                      <div className="flex items-center space-x-3">
-                        <img 
-                          src={product.images?.[0] || "https://images.unsplash.com/photo-1586495777744-4413f21062fa"} 
-                          alt={product.name}
-                          className="h-10 w-10 object-cover rounded"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium text-sm truncate">{product.name}</p>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant="destructive" className="text-xs">
-                              {product.stock || 0} em estoque
-                            </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              Mín: {product.minStock || 5}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                  <p>Todos os produtos estão com estoque adequado!</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
     </div>

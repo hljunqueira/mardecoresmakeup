@@ -16,8 +16,10 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DeleteConfirmation } from "@/components/ui/delete-confirmation";
+import { SaleReversalConfirm } from "@/components/ui/sale-reversal-confirm";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/use-admin-auth";
+import { useStockUpdate } from "@/hooks/use-stock-update";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { 
   Plus, 
@@ -28,7 +30,9 @@ import {
   TrendingDown, 
   Building, 
   Calendar,
-  Users
+  Users,
+  RotateCcw,
+  Package
 } from "lucide-react";
 import type { FinancialTransaction, Supplier } from "@shared/schema";
 
@@ -74,6 +78,14 @@ export default function AdminFinancial() {
   const [isDeleteTransactionDialogOpen, setIsDeleteTransactionDialogOpen] = useState(false);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
+  const {
+    isRevertDialogOpen,
+    pendingRevert,
+    handleRevertSale,
+    confirmSaleReversal,
+    cancelSaleReversal,
+    isLoading: isRevertLoading,
+  } = useStockUpdate();
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -867,6 +879,17 @@ export default function AdminFinancial() {
         title={deleteTransaction?.description || ""}
         description={`Valor: ${deleteTransaction ? formatCurrency(parseFloat(deleteTransaction.amount)) : ''} • Esta transação será removida permanentemente dos registros financeiros.`}
         isLoading={deleteTransactionMutation.isPending}
+      />
+      
+      {/* Sale Reversal Confirmation Modal */}
+      <SaleReversalConfirm
+        isOpen={isRevertDialogOpen}
+        onConfirm={confirmSaleReversal}
+        onCancel={cancelSaleReversal}
+        isLoading={isRevertLoading}
+        product={pendingRevert?.product || null}
+        quantity={pendingRevert?.quantity || 0}
+        transaction={pendingRevert?.transaction || null}
       />
     </div>
   );

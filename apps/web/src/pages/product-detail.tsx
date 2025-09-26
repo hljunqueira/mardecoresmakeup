@@ -19,7 +19,7 @@ export default function ProductDetail() {
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const { data: product, isLoading } = useQuery<Product>({
-    queryKey: ["/api/products", params?.id],
+    queryKey: [`/api/products/${params?.id}`],
     enabled: !!params?.id,
   });
 
@@ -42,7 +42,7 @@ export default function ProductDetail() {
       try {
         await navigator.share({
           title: product?.name,
-          text: product?.description,
+          text: product?.description || '',
           url: window.location.href,
         });
       } catch (error) {
@@ -215,25 +215,6 @@ export default function ProductDetail() {
                 <h3 className="text-xl font-semibold mb-2">Descrição</h3>
                 <p className="text-muted-foreground leading-relaxed">
                   {product.description}
-                </p>
-              </div>
-            )}
-
-            {product.stock !== undefined && (
-              <div className="mb-6">
-                <p className={`text-sm font-medium ${
-                  product.stock > 10 
-                    ? "text-green-600" 
-                    : product.stock > 0 
-                    ? "text-yellow-600" 
-                    : "text-red-600"
-                }`}>
-                  {product.stock > 10 
-                    ? "✅ Em estoque" 
-                    : product.stock > 0 
-                    ? `⚠️ Apenas ${product.stock} unidades restantes` 
-                    : "❌ Fora de estoque"
-                  }
                 </p>
               </div>
             )}

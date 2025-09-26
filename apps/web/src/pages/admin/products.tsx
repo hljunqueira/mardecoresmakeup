@@ -20,10 +20,13 @@ import { ImageSearch } from "@/components/ui/image-search-simple";
 import { DeleteConfirmation } from "@/components/ui/delete-confirmation";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminAuth } from "@/hooks/use-admin-auth";
+import { useStockUpdate } from "@/hooks/use-stock-update";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Plus, Edit, Trash2, Package, Star, AlertTriangle, Eye, EyeOff, Search } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Star, AlertTriangle, Eye, EyeOff, Search, Minus } from "lucide-react";
 import type { Product, InsertProduct } from "@shared/schema";
 import { CATEGORIES, PRODUCT_TAGS } from "@/lib/constants";
+import { StockReductionConfirm } from "@/components/ui/stock-reduction-confirm";
+import { SaleReversalConfirm } from "@/components/ui/sale-reversal-confirm";
 
 const productSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório"),
@@ -51,6 +54,44 @@ export default function AdminProducts() {
   const [isImageSearchOpen, setIsImageSearchOpen] = useState(false);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
+  const {    
+    isConfirmDialogOpen,
+    isRevertDialogOpen,
+    pendingUpdate,
+    pendingRevert,
+    handleStockReduction,
+    confirmStockReduction,
+    cancelStockReduction,
+    handleRevertSale,
+    confirmSaleReversal,
+    cancelSaleReversal,
+    isLoading: isStockUpdateLoading,
+  } = useStockUpdate();
+
+  // Mutation para atualizar estoque diretamente (incremento)
+  const updateStockMutation = useMutation({
+    mutationFn: async ({ productId, newStock }: { productId: string; newStock: number }) => {
+      const response = await apiRequest("PUT", `/api/admin/products/${productId}`, {
+        stock: newStock
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      toast({
+        title: "Estoque atualizado!",
+        description: "O estoque foi modificado com sucesso.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Erro ao atualizar estoque",
+        description: "Tente novamente em instantes.",
+        variant: "destructive",
+      });
+    },
+  });
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -192,6 +233,19 @@ export default function AdminProducts() {
 
   const onSubmit = (data: ProductForm) => {
     if (editingProduct) {
+      // Verificar se há redução de estoque
+      const previousStock = editingProduct.stock || 0;
+      const newStock = data.stock;
+      
+      if (newStock < previousStock) {
+        // Interceptar atualização para confirmação de venda
+        handleStockReduction(editingProduct, newStock);
+        setIsDialogOpen(false);
+        setEditingProduct(null);
+        form.reset();
+        return;
+      }
+      
       updateMutation.mutate({ id: editingProduct.id, data });
     } else {
       createMutation.mutate(data);
@@ -302,11 +356,14 @@ export default function AdminProducts() {
                   Adicionar Produto
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
+              <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto" aria-describedby="product-form-description">
                 <DialogHeader>
                   <DialogTitle>
                     {editingProduct ? "Editar Produto" : "Novo Produto"}
                   </DialogTitle>
+                  <div id="product-form-description" className="text-sm text-muted-foreground">
+                    {editingProduct ? "Modifique as informações do produto abaixo" : "Preencha as informações para criar um novo produto"}
+                  </div>
                 </DialogHeader>
 
                 <Form {...form}>
@@ -623,13 +680,6 @@ export default function AdminProducts() {
                           </Badge>
                         )}
                         
-                        {isLowStock && !isOutOfStock && (
-                          <Badge variant="secondary" className="bg-orange-100 text-orange-800">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Estoque Baixo
-                          </Badge>
-                        )}
-                        
                         {isInactive && (
                           <Badge variant="outline" className="bg-gray-100 text-gray-600">
                             <EyeOff className="h-3 w-3 mr-1" />
@@ -696,17 +746,65 @@ export default function AdminProducts() {
                       
                       <div className="flex items-center justify-between text-sm text-muted-foreground mb-2">
                         <span>{product.category}</span>
-                        <span className={`font-medium ${
-                          isOutOfStock ? 'text-red-600' : 
-                          isLowStock ? 'text-orange-600' : 'text-green-600'
-                        }`}>
-                          {product.stock} em estoque
-                        </span>
                       </div>
                       
                       {/* Indicador de estoque mínimo */}
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 mb-3">
                         Estoque mínimo: {product.minStock || 5}
+                      </div>
+                      
+                      {/* Controles de Estoque */}
+                      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 rounded-lg p-3 border border-blue-100 dark:border-blue-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Controle de Estoque</span>
+                          <Badge variant={isOutOfStock ? "destructive" : isLowStock ? "secondary" : "default"} className="text-xs">
+                            {product.stock || 0} unidades
+                          </Badge>
+                        </div>
+                        
+                        <div className="flex items-center justify-center gap-3">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 rounded-full bg-white border-petrol-300 text-petrol-700 hover:bg-white hover:border-petrol-500 hover:text-petrol-800 transition-colors dark:bg-white dark:border-petrol-400 dark:text-petrol-700 dark:hover:bg-white dark:hover:border-petrol-600"
+                            onClick={() => {
+                              const currentStock = product.stock || 0;
+                              if (currentStock > 0) {
+                                handleStockReduction(product, currentStock - 1);
+                              }
+                            }}
+                            disabled={(product.stock || 0) <= 0 || updateStockMutation.isPending}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          
+                          <span className="font-bold text-lg text-petrol-700 min-w-[3rem] text-center px-2 py-1 bg-white rounded-lg border border-petrol-300">
+                            {product.stock || 0}
+                          </span>
+                          
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 rounded-full bg-white border-petrol-300 text-petrol-700 hover:bg-white hover:border-petrol-500 hover:text-petrol-800 transition-colors dark:bg-white dark:border-petrol-400 dark:text-petrol-700 dark:hover:bg-white dark:hover:border-petrol-600"
+                            onClick={() => {
+                              const currentStock = product.stock || 0;
+                              updateStockMutation.mutate({
+                                productId: product.id,
+                                newStock: currentStock + 1
+                              });
+                            }}
+                            disabled={updateStockMutation.isPending}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        {updateStockMutation.isPending && (
+                          <div className="flex items-center justify-center mt-2">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-petrol-500"></div>
+                            <span className="text-xs text-gray-500 ml-2">Atualizando...</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
@@ -738,6 +836,28 @@ export default function AdminProducts() {
         title={deleteProduct?.name || ""}
         description="Todas as imagens e dados relacionados também serão removidos permanentemente."
         isLoading={deleteMutation.isPending}
+      />
+      
+      {/* Stock Reduction Confirmation Modal */}
+      <StockReductionConfirm
+        isOpen={isConfirmDialogOpen}
+        onConfirm={confirmStockReduction}
+        onCancel={cancelStockReduction}
+        isLoading={isStockUpdateLoading}
+        product={pendingUpdate?.product || null}
+        quantitySold={pendingUpdate?.quantitySold || 0}
+        newStock={pendingUpdate?.newStock || 0}
+      />
+      
+      {/* Sale Reversal Confirmation Modal */}
+      <SaleReversalConfirm
+        isOpen={isRevertDialogOpen}
+        onConfirm={confirmSaleReversal}
+        onCancel={cancelSaleReversal}
+        isLoading={isStockUpdateLoading}
+        product={pendingRevert?.product || null}
+        quantity={pendingRevert?.quantity || 0}
+        transaction={pendingRevert?.transaction || null}
       />
     </div>
   );

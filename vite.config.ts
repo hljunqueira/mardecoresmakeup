@@ -4,7 +4,10 @@ import path from "path";
 
 export default defineConfig({
   plugins: [
-    react(),
+    react({
+      jsxImportSource: "react",
+      include: "**/*.{jsx,tsx}",
+    }),
   ],
   resolve: {
     alias: {
@@ -23,5 +26,9 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+  },
+  esbuild: {
+    jsx: "automatic",
+    jsxImportSource: "react",
   },
 });

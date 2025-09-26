@@ -517,13 +517,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/admin/transactions", async (req, res) => {
     try {
+      console.log('🔍 POST /api/admin/transactions - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
       const transactionData = insertFinancialTransactionSchema.parse(req.body);
+      console.log('✅ Dados validados com sucesso:', JSON.stringify(transactionData, null, 2));
+      
       const transaction = await storage.createTransaction(transactionData);
+      console.log('✅ Transação criada com sucesso:', transaction.id);
+      
       res.status(201).json(transaction);
     } catch (error) {
       if (error instanceof z.ZodError) {
+        console.log('❌ Erro de validação Zod:', JSON.stringify(error.errors, null, 2));
+        console.log('📋 Dados originais que falharam:', JSON.stringify(req.body, null, 2));
         return res.status(400).json({ message: "Invalid transaction data", errors: error.errors });
       }
+      console.log('❌ Erro geral ao criar transação:', error);
       res.status(500).json({ message: "Failed to create transaction" });
     }
   });
@@ -694,6 +703,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
       const balance = totalRevenue - totalExpenses;
+      
+      // Contar vendas específicas do controle de estoque
+      const stockSales = transactions.filter(t => 
+        t.type === "income" && 
+        t.status === "completed" && 
+        (t.category === "Vendas" || t.category === "sale")
+      );
 
       res.json({
         totalRevenue,
@@ -702,6 +718,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pendingReceivables,
         pendingPayables,
         totalTransactions: transactions.length,
+        stockSales: stockSales.length, // Número de vendas via controle de estoque
+        stockSalesRevenue: stockSales.reduce((sum, t) => sum + parseFloat(t.amount), 0) // Receita das vendas de estoque
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch financial summary" });
@@ -733,27 +751,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
         (p.stock || 0) <= (p.minStock || 5)
       );
       
-      // Produtos mais vendidos (baseado em transações de venda)
-      const salesTransactions = transactions.filter(t => t.type === "income" && t.category === "sale");
-      const productSales: { [key: string]: { count: number; revenue: number; product?: any } } = {};
+      // Produtos mais vendidos (baseado em transações de venda do controle de estoque)
+      const salesTransactions = transactions.filter(t => 
+        t.type === "income" && 
+        t.status === "completed" && 
+        (t.category === "Vendas" || t.category === "sale") // Reconhece vendas do controle de estoque
+      );
       
-      // Agrupar vendas por produto (simulado baseado na descrição)
+      const productSales: { [key: string]: { count: number; revenue: number; product?: any; productId?: string } } = {};
+      
+      // Agrupar vendas por produto usando metadata quando disponível
       salesTransactions.forEach(transaction => {
-        // Tentar extrair informações do produto da descrição
-        const productName = transaction.description;
-        if (!productSales[productName]) {
-          productSales[productName] = { count: 0, revenue: 0 };
+        let productKey = '';
+        let productName = '';
+        let productId = '';
+        
+        // Tentar extrair informações do metadata primeiro (vendas do controle de estoque)
+        if (transaction.metadata && typeof transaction.metadata === 'object') {
+          const metadata = transaction.metadata as any;
+          if (metadata.productId && metadata.productName) {
+            productId = metadata.productId;
+            productName = metadata.productName;
+            productKey = productId; // Usar ID como chave principal
+          }
         }
-        productSales[productName].count += 1;
-        productSales[productName].revenue += parseFloat(transaction.amount);
+        
+        // Fallback para descrição se não tiver metadata
+        if (!productKey) {
+          productName = transaction.description;
+          productKey = productName;
+        }
+        
+        if (!productSales[productKey]) {
+          productSales[productKey] = { count: 0, revenue: 0, productId };
+        }
+        
+        // Extrair quantidade do metadata se disponível
+        let quantity = 1;
+        if (transaction.metadata && typeof transaction.metadata === 'object') {
+          const metadata = transaction.metadata as any;
+          if (metadata.quantity) {
+            quantity = metadata.quantity;
+          }
+        }
+        
+        productSales[productKey].count += quantity;
+        productSales[productKey].revenue += parseFloat(transaction.amount);
       });
       
-      const topProducts = Object.entries(productSales)
-        .map(([name, data]) => ({
-          product: { name },
-          sales: data.count,
-          revenue: data.revenue
-        }))
+      // Buscar informações completas dos produtos para o relatório
+      const topProducts = await Promise.all(
+        Object.entries(productSales)
+          .map(async ([key, data]) => {
+            let product = { name: key };
+            
+            // Se temos productId, buscar dados completos do produto
+            if (data.productId) {
+              const fullProduct = await storage.getProduct(data.productId);
+              if (fullProduct) {
+                product = fullProduct;
+              }
+            }
+            
+            return {
+              product,
+              sales: data.count,
+              revenue: data.revenue
+            };
+          })
+      );
+      
+      // Ordenar por receita e pegar top 5
+      const sortedTopProducts = topProducts
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5);
       
@@ -787,7 +856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalViews: siteViewsStats.total,
         viewsToday: siteViewsStats.today,
         viewsThisWeek: siteViewsStats.thisWeek,
-        topProducts,
+        topProducts: sortedTopProducts,
         salesByMonth,
         lowStockProducts,
         activeCoupons: coupons.filter(c => c.active).length,

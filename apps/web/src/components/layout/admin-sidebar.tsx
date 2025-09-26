@@ -2,8 +2,6 @@ import { Link, useLocation } from "wouter";
 import { 
   LayoutDashboard, 
   Package, 
-  BadgePercent, 
-  Tag, 
   DollarSign, 
   BarChart3,
   LogOut,
@@ -20,8 +18,6 @@ import LogoTransp from "@assets/Logotranparente.png";
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Produtos", href: "/admin/produtos", icon: Package },
-  { name: "Tudo por R$ 10", href: "/admin/colecoes", icon: BadgePercent },
-  { name: "Cupons", href: "/admin/cupons", icon: Tag },
   { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign },
   { name: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
 ];

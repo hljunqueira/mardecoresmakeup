@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Download, Eye } from "lucide-react";
@@ -220,12 +220,15 @@ export function ImageSearch({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden" aria-describedby="image-search-description">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2">
               <Search className="h-5 w-5" />
               <span>Buscar Imagens</span>
             </DialogTitle>
+            <DialogDescription id="image-search-description">
+              Busque e selecione imagens da internet para o seu produto
+            </DialogDescription>
           </DialogHeader>
 
           {/* Busca */}
@@ -343,9 +346,12 @@ export function ImageSearch({
 
       {/* Preview Modal */}
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" aria-describedby="image-preview-description">
           <DialogHeader>
             <DialogTitle>Preview da Imagem</DialogTitle>
+            <DialogDescription id="image-preview-description">
+              Visualize a imagem antes de adicionar ao produto
+            </DialogDescription>
           </DialogHeader>
           {selectedImage && (
             <div className="space-y-4">
