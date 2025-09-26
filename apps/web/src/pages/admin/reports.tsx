@@ -243,25 +243,36 @@ export default function AdminReports() {
                   <Skeleton className="h-64 w-full" />
                 ) : (
                   <div className="space-y-4">
-                    {reportData?.salesByMonth?.map((data) => (
-                      <div key={data.month} className="flex items-center justify-between">
-                        <span className="text-sm font-medium">{data.month}</span>
-                        <div className="flex items-center space-x-4">
-                          <div className="w-32 bg-gray-200 rounded-full h-2">
-                            <div 
-                              className="bg-petrol-500 h-2 rounded-full" 
-                              style={{ width: `${(data.sales / 70) * 100}%` }}
-                            />
+                    {reportData?.salesByMonth?.length ? (
+                      reportData.salesByMonth.map((data) => (
+                        <div key={data.month} className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{data.month}</span>
+                          <div className="flex items-center space-x-4">
+                            <div className="w-32 bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-petrol-500 h-2 rounded-full" 
+                                style={{ 
+                                  width: `${reportData.salesByMonth.length > 0 ? 
+                                    (data.sales / Math.max(...reportData.salesByMonth.map(m => m.sales))) * 100 : 0}%` 
+                                }}
+                              />
+                            </div>
+                            <span className="text-sm text-muted-foreground w-16 text-right">
+                              {data.sales} vendas
+                            </span>
+                            <span className="text-sm font-medium w-20 text-right">
+                              {formatCurrency(data.revenue)}
+                            </span>
                           </div>
-                          <span className="text-sm text-muted-foreground w-16 text-right">
-                            {data.sales} vendas
-                          </span>
-                          <span className="text-sm font-medium w-20 text-right">
-                            {formatCurrency(data.revenue)}
-                          </span>
                         </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p>Nenhum dado de vendas encontrado</p>
+                        <p className="text-xs mt-1">As vendas aparecerão aqui conforme forem realizadas</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
               </CardContent>

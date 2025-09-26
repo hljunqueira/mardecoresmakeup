@@ -18,6 +18,7 @@ import AdminCollections from "@/pages/admin/collections";
 import AdminCoupons from "@/pages/admin/coupons";
 import AdminFinancial from "@/pages/admin/financial";
 import AdminReports from "@/pages/admin/reports";
+import AdminProductRequests from "@/pages/admin/product-requests";
 
 function Router() {
   return (
@@ -34,6 +35,7 @@ function Router() {
       <Route path="/admin/cupons" component={AdminCoupons} />
       <Route path="/admin/financeiro" component={AdminFinancial} />
       <Route path="/admin/relatorios" component={AdminReports} />
+      <Route path="/admin/solicitacoes" component={AdminProductRequests} />
       <Route component={NotFound} />
     </Switch>
   );

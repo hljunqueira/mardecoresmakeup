@@ -19,6 +19,8 @@ import type {
   InsertAnalytics,
   Reservation,
   InsertReservation,
+  ProductRequest,
+  InsertProductRequest,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -91,6 +93,13 @@ export interface IStorage {
   // Analytics operations
   recordAnalytic(analytic: InsertAnalytics): Promise<Analytics>;
   getAnalytics(metric: string, period?: number): Promise<Analytics[]>;
+
+  // Product Request operations
+  createProductRequest(productRequest: InsertProductRequest): Promise<ProductRequest>;
+  getProductRequests(): Promise<ProductRequest[]>;
+  getProductRequest(id: string): Promise<ProductRequest | undefined>;
+  updateProductRequest(id: string, productRequest: Partial<ProductRequest>): Promise<ProductRequest | undefined>;
+  deleteProductRequest(id: string): Promise<boolean>;
 }
 
 // Configuração direta do Supabase Storage

@@ -5,6 +5,7 @@ import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import ProductCard from "@/components/product-card";
 import FloatingWhatsApp from "@/components/floating-whatsapp";
+import ProductRequestBanner from "@/components/product-request-banner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -197,6 +198,9 @@ export default function Products() {
           )}
         </div>
       </section>
+
+      {/* Solicitação de Produtos */}
+      <ProductRequestBanner />
 
       <Footer />
       <FloatingWhatsApp />

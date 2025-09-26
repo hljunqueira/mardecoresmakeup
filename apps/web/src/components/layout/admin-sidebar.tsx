@@ -8,7 +8,8 @@ import {
   Menu,
   X,
   Home,
-  Calendar
+  Calendar,
+  MessageCircle
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Produtos", href: "/admin/produtos", icon: Package },
   { name: "Reservas", href: "/admin/reservas", icon: Calendar },
+  { name: "Solicitações", href: "/admin/solicitacoes", icon: MessageCircle },
   { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign },
   { name: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
 ];

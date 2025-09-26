@@ -474,3 +474,27 @@ export type InsertCouponUsage = z.infer<typeof insertCouponUsageSchema>;
 
 export type Reservation = typeof reservations.$inferSelect;
 export type InsertReservation = z.infer<typeof insertReservationSchema>;
+
+// Tabela de solicitações de produtos
+export const productRequests = pgTable("product_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerName: text("customer_name").notNull(),
+  productName: text("product_name").notNull(),
+  phone: text("phone").notNull(), // WhatsApp
+  status: text("status").default("pending"), // 'pending' | 'contacted' | 'resolved' | 'cancelled'
+  notes: text("notes"), // Observações do admin
+  contactedAt: timestamp("contacted_at"), // Quando foi contatado
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  statusIdx: index("product_requests_status_idx").on(table.status),
+  dateIdx: index("product_requests_date_idx").on(table.createdAt),
+}));
+
+export const insertProductRequestSchema = createInsertSchema(productRequests).omit({
+  id: true,
+  createdAt: true,
+  contactedAt: true,
+});
+
+export type ProductRequest = typeof productRequests.$inferSelect;
+export type InsertProductRequest = z.infer<typeof insertProductRequestSchema>;

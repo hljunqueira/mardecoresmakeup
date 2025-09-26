@@ -29,6 +29,8 @@ import type {
   InsertAnalytics,
   Reservation,
   InsertReservation,
+  ProductRequest,
+  InsertProductRequest,
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
@@ -632,5 +634,47 @@ export class SupabaseStorage implements IStorage {
     const success = result.length > 0;
     console.log('🔍 STORAGE: Retornando success:', success);
     return success;
+  }
+
+  // Product Request operations
+  async createProductRequest(productRequest: InsertProductRequest): Promise<ProductRequest> {
+    const result = await db.insert(schema.productRequests).values({
+      ...productRequest,
+      createdAt: new Date()
+    }).returning();
+    return result[0];
+  }
+
+  async getProductRequests(): Promise<ProductRequest[]> {
+    return await db.select().from(schema.productRequests)
+      .orderBy(sql`${schema.productRequests.createdAt} DESC`);
+  }
+
+  async getProductRequest(id: string): Promise<ProductRequest | undefined> {
+    const result = await db.select().from(schema.productRequests)
+      .where(eq(schema.productRequests.id, id));
+    return result[0];
+  }
+
+  async updateProductRequest(id: string, productRequest: Partial<ProductRequest>): Promise<ProductRequest | undefined> {
+    const updateData: any = { ...productRequest };
+    
+    // Se o status for 'contacted', marcar contactedAt
+    if (productRequest.status === 'contacted') {
+      updateData.contactedAt = new Date();
+    }
+    
+    const result = await db.update(schema.productRequests)
+      .set(updateData)
+      .where(eq(schema.productRequests.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteProductRequest(id: string): Promise<boolean> {
+    const result = await db.delete(schema.productRequests)
+      .where(eq(schema.productRequests.id, id))
+      .returning();
+    return result.length > 0;
   }
 }

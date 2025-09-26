@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema } from "@shared/schema";
+import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema, insertProductRequestSchema } from "@shared/schema";
 import { z } from "zod";
 import * as crypto from "crypto";
 import { upload, imageUploadService } from "./upload-service";
@@ -995,6 +995,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('❌ Erro ao gerar relatório:', error);
       res.status(500).json({ message: "Failed to generate reports" });
+    }
+  });
+
+  // ========== PRODUCT REQUESTS API ==========
+  
+  // Criar solicitação de produto
+  app.post("/api/product-requests", async (req, res) => {
+    try {
+      console.log('🔍 Criando solicitação de produto:', req.body);
+      const data = insertProductRequestSchema.parse(req.body);
+      const productRequest = await storage.createProductRequest(data);
+      console.log('✅ Solicitação criada com sucesso:', productRequest.id);
+      res.status(201).json(productRequest);
+    } catch (error) {
+      console.error('❌ Erro ao criar solicitação:', error);
+      res.status(400).json({ message: "Erro ao criar solicitação de produto" });
+    }
+  });
+
+  // Listar solicitações de produtos (admin)
+  app.get("/api/admin/product-requests", async (req, res) => {
+    try {
+      const productRequests = await storage.getProductRequests();
+      res.json(productRequests);
+    } catch (error) {
+      console.error('❌ Erro ao buscar solicitações:', error);
+      res.status(500).json({ message: "Erro ao buscar solicitações" });
+    }
+  });
+
+  // Atualizar status de solicitação (admin)
+  app.patch("/api/admin/product-requests/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status, notes } = req.body;
+      
+      const updatedRequest = await storage.updateProductRequest(id, { status, notes });
+      if (!updatedRequest) {
+        return res.status(404).json({ message: "Solicitação não encontrada" });
+      }
+      
+      res.json(updatedRequest);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar solicitação:', error);
+      res.status(500).json({ message: "Erro ao atualizar solicitação" });
+    }
+  });
+
+  // Deletar solicitação (admin)
+  app.delete("/api/admin/product-requests/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteProductRequest(id);
+      
+      if (!success) {
+        return res.status(404).json({ message: "Solicitação não encontrada" });
+      }
+      
+      res.json({ message: "Solicitação deletada com sucesso" });
+    } catch (error) {
+      console.error('❌ Erro ao deletar solicitação:', error);
+      res.status(500).json({ message: "Erro ao deletar solicitação" });
     }
   });
 

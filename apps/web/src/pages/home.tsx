@@ -2,6 +2,7 @@ import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import ProductCard from "@/components/product-card";
 import FloatingWhatsApp from "@/components/floating-whatsapp";
+import ProductRequestBanner from "@/components/product-request-banner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -111,6 +112,9 @@ export default function Home() {
       {/* Seção Sobre/História removida */}
 
       {/* Newsletter removida */}
+
+      {/* Solicitação de Produtos */}
+      <ProductRequestBanner />
 
       <Footer />
       <FloatingWhatsApp />
