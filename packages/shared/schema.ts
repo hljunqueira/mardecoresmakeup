@@ -29,6 +29,7 @@ export const products = pgTable("products", {
   tags: text("tags").array(),
   featured: boolean("featured").default(false),
   active: boolean("active").default(true), // Produto ativo/inativo
+  tenDeal: boolean("ten_deal").default(false), // Produto do "Tudo por 10"
   rating: decimal("rating", { precision: 2, scale: 1 }).default("0"),
   reviewCount: integer("review_count").default(0),
   weight: decimal("weight", { precision: 8, scale: 2 }), // Peso em gramas
@@ -39,6 +40,7 @@ export const products = pgTable("products", {
   categoryIdx: index("products_category_idx").on(table.category),
   featuredIdx: index("products_featured_idx").on(table.featured),
   activeIdx: index("products_active_idx").on(table.active),
+  tenDealIdx: index("products_ten_deal_idx").on(table.tenDeal),
 }));
 
 // Tabela de coleções
@@ -136,7 +138,7 @@ export const stockHistory = pgTable("stock_history", {
   dateIdx: index("stock_history_date_idx").on(table.createdAt),
 }));
 
-// Nova tabela: Reservas de produtos
+// Nova tabela: Reservas de produtos (ESTENDIDA PARA CREDIÁRIO)
 export const reservations = pgTable("reservations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar("product_id").notNull(),
@@ -148,10 +150,58 @@ export const reservations = pgTable("reservations", {
   notes: text("notes"), // Observações da reserva
   createdAt: timestamp("created_at").defaultNow(),
   completedAt: timestamp("completed_at"), // Data quando foi finalizada
+  
+  // NOVOS CAMPOS PARA CREDIÁRIO (COMPATIBILIDADE TOTAL)
+  type: text("type").default("simple"), // 'simple' | 'credit_account' 
+  creditAccountId: varchar("credit_account_id"), // FK para contas de crediário
+  customerId: varchar("customer_id"), // FK para clientes cadastrados (opcional)
 }, (table) => ({
   productIdx: index("reservations_product_idx").on(table.productId),
   statusIdx: index("reservations_status_idx").on(table.status),
   paymentDateIdx: index("reservations_payment_date_idx").on(table.paymentDate),
+  
+  // NOVOS ÍNDICES PARA CREDIÁRIO
+  typeIdx: index("reservations_type_idx").on(table.type),
+  creditAccountIdx: index("reservations_credit_account_idx").on(table.creditAccountId),
+  customerIdx: index("reservations_customer_idx").on(table.customerId),
+}));
+
+// Nova tabela: Contas de Crediário
+export const creditAccounts = pgTable("credit_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  customerId: varchar("customer_id").references(() => customers.id).notNull(),
+  accountNumber: text("account_number").unique().notNull(), // CR001, CR002, etc.
+  status: text("status").default("active"), // 'active' | 'closed' | 'suspended'
+  totalAmount: decimal("total_amount", { precision: 12, scale: 2 }).default("0"),
+  paidAmount: decimal("paid_amount", { precision: 12, scale: 2 }).default("0"),
+  remainingAmount: decimal("remaining_amount", { precision: 12, scale: 2 }).default("0"),
+  installments: integer("installments").default(1), // Número de parcelas
+  installmentValue: decimal("installment_value", { precision: 10, scale: 2 }),
+  paymentFrequency: text("payment_frequency").default("monthly"), // 'weekly' | 'monthly'
+  nextPaymentDate: timestamp("next_payment_date"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  closedAt: timestamp("closed_at"),
+}, (table) => ({
+  customerIdx: index("credit_accounts_customer_idx").on(table.customerId),
+  statusIdx: index("credit_accounts_status_idx").on(table.status),
+  paymentDateIdx: index("credit_accounts_payment_date_idx").on(table.nextPaymentDate),
+  accountNumberIdx: index("credit_accounts_number_idx").on(table.accountNumber),
+}));
+
+// Nova tabela: Pagamentos do Crediário
+export const creditPayments = pgTable("credit_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creditAccountId: varchar("credit_account_id").references(() => creditAccounts.id).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: text("payment_method"), // 'dinheiro' | 'pix' | 'cartao'
+  installmentNumber: integer("installment_number"), // Parcela número X
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  accountIdx: index("credit_payments_account_idx").on(table.creditAccountId),
+  dateIdx: index("credit_payments_date_idx").on(table.createdAt),
+  installmentIdx: index("credit_payments_installment_idx").on(table.installmentNumber),
 }));
 
 // Nova tabela: Analytics/Métricas
@@ -446,6 +496,17 @@ export const insertReservationSchema = createInsertSchema(reservations).omit({
   completedAt: true,
 });
 
+export const insertCreditAccountSchema = createInsertSchema(creditAccounts).omit({
+  id: true,
+  createdAt: true,
+  closedAt: true,
+});
+
+export const insertCreditPaymentSchema = createInsertSchema(creditPayments).omit({
+  id: true,
+  createdAt: true,
+});
+
 // ========== TYPES PARA NOVAS TABELAS ==========
 
 export type Customer = typeof customers.$inferSelect;
@@ -474,6 +535,12 @@ export type InsertCouponUsage = z.infer<typeof insertCouponUsageSchema>;
 
 export type Reservation = typeof reservations.$inferSelect;
 export type InsertReservation = z.infer<typeof insertReservationSchema>;
+
+export type CreditAccount = typeof creditAccounts.$inferSelect;
+export type InsertCreditAccount = z.infer<typeof insertCreditAccountSchema>;
+
+export type CreditPayment = typeof creditPayments.$inferSelect;
+export type InsertCreditPayment = z.infer<typeof insertCreditPaymentSchema>;
 
 // Tabela de solicitações de produtos
 export const productRequests = pgTable("product_requests", {

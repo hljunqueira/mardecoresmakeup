@@ -24,7 +24,8 @@ import { useStockUpdate } from "@/hooks/use-stock-update";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Plus, Edit, Trash2, Package, Star, AlertTriangle, Eye, EyeOff, Search, Minus } from "lucide-react";
 import type { Product, InsertProduct } from "@shared/schema";
-import { CATEGORIES, PRODUCT_TAGS } from "@/lib/constants";
+import { CATEGORIES, BRAZILIAN_BRANDS, PRODUCT_TAGS } from "@/lib/constants";
+import { ProductWizard } from "@/components/ui/product-wizard";
 import { StockReductionConfirm } from "@/components/ui/stock-reduction-confirm";
 import { ReservationModal } from "@/components/ui/reservation-modal";
 import { ReservationManageModal } from "@/components/ui/reservation-manage-modal";
@@ -39,6 +40,8 @@ const productSchema = z.object({
   minStock: z.number().min(0, "Estoque mínimo deve ser positivo").default(5),
   images: z.array(z.string()).default([]),
   category: z.string().optional(),
+  brand: z.string().optional(),
+  customBrand: z.string().optional(),
   tags: z.array(z.string()).default([]),
   featured: z.boolean().default(false),
   active: z.boolean().default(true),
@@ -86,6 +89,10 @@ export default function AdminProducts() {
     handleRevertSale,
     confirmSaleReversal,
     cancelSaleReversal,
+    
+    // Nova funcionalidade de crediário
+    addToCredit,
+    createCustomerAndCredit,
     
     isLoading: isStockUpdateLoading,
   } = useStockUpdate();
@@ -137,6 +144,8 @@ export default function AdminProducts() {
       minStock: 5,
       images: [],
       category: "",
+      brand: "",
+      customBrand: "",
       tags: [],
       featured: false,
       active: true,
@@ -285,6 +294,7 @@ export default function AdminProducts() {
       minStock: product.minStock || 5,
       images: product.images || [],
       category: product.category || "",
+      brand: product.brand || "",
       tags: product.tags || [],
       featured: product.featured || false,
       active: product.active ?? true,
@@ -384,265 +394,25 @@ export default function AdminProducts() {
                     {editingProduct ? "Editar Produto" : "Novo Produto"}
                   </DialogTitle>
                   <div id="product-form-description" className="text-sm text-muted-foreground">
-                    {editingProduct ? "Modifique as informações do produto abaixo" : "Preencha as informações para criar um novo produto"}
+                    {editingProduct ? "Siga as etapas para modificar as informações do produto" : "Siga as etapas para criar um novo produto"}
                   </div>
                 </DialogHeader>
-
-                <Form {...form}>
-                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                    <div className="grid grid-cols-2 gap-4">
-                      <FormField
-                        control={form.control}
-                        name="name"
-                        render={({ field }) => (
-                          <FormItem className="col-span-2">
-                            <FormLabel>Nome do Produto</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="Nome do produto" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="price"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Preço</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="29.90" type="number" step="0.01" disabled={form.watch("tenDeal")} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        control={form.control}
-                        name="originalPrice"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Preço Original (opcional)</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="39.90" type="number" step="0.01" disabled={form.watch("tenDeal")} />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="stock"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Estoque Atual</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...field} 
-                                  type="number" 
-                                  placeholder="0"
-                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name="minStock"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Estoque Mínimo</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...field} 
-                                  type="number" 
-                                  placeholder="5"
-                                  onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-
-                      <FormField
-                        control={form.control}
-                        name="category"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Categoria</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione uma categoria" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {CATEGORIES.map((category) => (
-                                  <SelectItem key={category} value={category}>
-                                    {category}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    <FormField
-                      control={form.control}
-                      name="description"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Descrição</FormLabel>
-                          <FormControl>
-                            <Textarea {...field} placeholder="Descrição do produto" rows={3} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="images"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Imagens do Produto</FormLabel>
-                          <FormControl>
-                            <div className="space-y-4">
-                              <ImageUpload
-                                value={field.value}
-                                onChange={field.onChange}
-                                maxImages={5}
-                                productId={editingProduct?.id}
-                              />
-                              
-                              {/* Botão para buscar imagens da internet */}
-                              <div className="flex justify-center">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setIsImageSearchOpen(true)}
-                                  className="w-full max-w-sm border-dashed border-2 border-petrol-300 hover:border-petrol-500 text-petrol-600 hover:text-petrol-700 hover:bg-petrol-50"
-                                >
-                                  <Search className="h-4 w-4 mr-2" />
-                                  Buscar na Internet
-                                </Button>
-                              </div>
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="featured"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2">
-                          <FormControl>
-                            <Switch 
-                              checked={field.value} 
-                              onCheckedChange={field.onChange} 
-                            />
-                          </FormControl>
-                          <FormLabel className="text-sm font-medium">
-                            Produto em destaque
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="active"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2">
-                          <FormControl>
-                            <Switch 
-                              checked={field.value} 
-                              onCheckedChange={field.onChange} 
-                            />
-                          </FormControl>
-                          <FormLabel className="text-sm font-medium">
-                            Visível na loja (desativado = oculto para clientes)
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="tenDeal"
-                      render={({ field }) => (
-                        <FormItem className="flex items-center space-x-2">
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={(checked) => {
-                                field.onChange(checked);
-                                if (checked) {
-                                  form.setValue("price", "10");
-                                  form.setValue("originalPrice", "");
-                                }
-                              }}
-                            />
-                          </FormControl>
-                          <FormLabel className="text-sm font-medium">
-                            Tudo por R$ 10 (fixa preço em 10)
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="flex justify-end space-x-2">
-                      <Button 
-                        type="button" 
-                        variant="outline" 
-                        onClick={() => {
-                          setIsDialogOpen(false);
-                          setEditingProduct(null);
-                          form.reset();
-                        }}
-                      >
-                        Cancelar
-                      </Button>
-                      <Button 
-                        type="submit" 
-                        disabled={createMutation.isPending || updateMutation.isPending}
-                        className="bg-petrol-500 hover:bg-petrol-600"
-                      >
-                        {(createMutation.isPending || updateMutation.isPending) ? (
-                          <div className="flex items-center">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                            Salvando...
-                          </div>
-                        ) : (
-                          editingProduct ? "Atualizar" : "Criar"
-                        )}
-                      </Button>
-                    </div>
-                  </form>
-                </Form>
                 
-                {/* Modal de busca de imagens da internet */}
-                <ImageSearch
-                  isOpen={isImageSearchOpen}
-                  onOpenChange={setIsImageSearchOpen}
-                  onImageSelect={handleImageSelect}
-                  searchPlaceholder="Buscar imagens de produtos de beleza..."
+                <ProductWizard
+                  onSubmit={(data) => {
+                    if (editingProduct) {
+                      updateMutation.mutate({ id: editingProduct.id, data });
+                    } else {
+                      createMutation.mutate(data);
+                    }
+                  }}
+                  onCancel={() => {
+                    setIsDialogOpen(false);
+                    setEditingProduct(null);
+                    form.reset();
+                  }}
+                  isLoading={createMutation.isPending || updateMutation.isPending}
+                  editingProduct={editingProduct}
                 />
               </DialogContent>
             </Dialog>
@@ -864,7 +634,8 @@ export default function AdminProducts() {
       <StockReductionConfirm
         isOpen={isConfirmDialogOpen}
         onConfirm={confirmStockReduction}
-        onReserve={openReservationDialog}
+        onAddToCredit={addToCredit}
+        onCreateCustomerAndCredit={createCustomerAndCredit}
         onCancel={cancelStockReduction}
         isLoading={isStockUpdateLoading}
         product={pendingUpdate?.product || null}

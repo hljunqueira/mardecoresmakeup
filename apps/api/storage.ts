@@ -13,14 +13,18 @@ import type {
   InsertSupplier,
   ProductImage,
   InsertProductImage,
-  SiteView,
-  InsertSiteView,
-  Analytics,
-  InsertAnalytics,
   Reservation,
   InsertReservation,
   ProductRequest,
   InsertProductRequest,
+  Customer,
+  InsertCustomer,
+  CustomerAddress,
+  InsertCustomerAddress,
+  CreditAccount,
+  InsertCreditAccount,
+  CreditPayment,
+  InsertCreditPayment,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -37,6 +41,29 @@ export interface IStorage {
   updateProduct(id: string, product: Partial<Product>): Promise<Product | undefined>;
   deleteProduct(id: string): Promise<boolean>;
   getFeaturedProducts(): Promise<Product[]>;
+  
+  // NOVAS OPERAÇÕES DE BUSCA INTELIGENTE PARA CREDIÁRIO
+  searchAvailableProducts(filters: {
+    query: string;
+    category: string | null;
+    brand: string | null;
+    minStock: number;
+    maxPrice: number | null;
+    featured: boolean | null;
+  }): Promise<Product[]>;
+  
+  advancedProductSearch(params: {
+    query: string;
+    categories: string[];
+    brands: string[];
+    priceMin: number | null;
+    priceMax: number | null;
+    activeOnly: boolean;
+    stockOnly: boolean;
+    sortBy: string;
+    sortOrder: 'asc' | 'desc';
+    limit: number;
+  }): Promise<Product[]>;
 
   // Product Images operations
   getProductImages(productId: string): Promise<ProductImage[]>;
@@ -81,18 +108,6 @@ export interface IStorage {
   updateReservation(id: string, reservation: Partial<Reservation>): Promise<Reservation | undefined>;
   deleteReservation(id: string): Promise<boolean>;
 
-  // Site Views operations
-  recordSiteView(view: InsertSiteView): Promise<SiteView>;
-  getSiteViewsStats(): Promise<{
-    total: number;
-    today: number;
-    thisWeek: number;
-    thisMonth: number;
-  }>;
-
-  // Analytics operations
-  recordAnalytic(analytic: InsertAnalytics): Promise<Analytics>;
-  getAnalytics(metric: string, period?: number): Promise<Analytics[]>;
 
   // Product Request operations
   createProductRequest(productRequest: InsertProductRequest): Promise<ProductRequest>;
@@ -100,6 +115,43 @@ export interface IStorage {
   getProductRequest(id: string): Promise<ProductRequest | undefined>;
   updateProductRequest(id: string, productRequest: Partial<ProductRequest>): Promise<ProductRequest | undefined>;
   deleteProductRequest(id: string): Promise<boolean>;
+  
+  // NOVAS OPERAÇÕES DE CLIENTES PARA CREDIÁRIO
+  getAllCustomers(): Promise<Customer[]>;
+  getCustomer(id: string): Promise<Customer | undefined>;
+  getCustomerByEmail(email: string): Promise<Customer | undefined>;
+  searchCustomers(query: string): Promise<Customer[]>;
+  createCustomer(customer: InsertCustomer): Promise<Customer>;
+  updateCustomer(id: string, customer: Partial<Customer>): Promise<Customer | undefined>;
+  deleteCustomer(id: string): Promise<boolean>;
+  
+  // Customer Address operations
+  getCustomerAddresses(customerId: string): Promise<CustomerAddress[]>;
+  createCustomerAddress(address: InsertCustomerAddress): Promise<CustomerAddress>;
+  updateCustomerAddress(id: string, address: Partial<CustomerAddress>): Promise<CustomerAddress | undefined>;
+  deleteCustomerAddress(id: string): Promise<boolean>;
+  
+  // NOVAS OPERAÇÕES DE CONTAS DE CREDIÁRIO
+  getAllCreditAccounts(): Promise<CreditAccount[]>;
+  getCreditAccount(id: string): Promise<CreditAccount | undefined>;
+  getCreditAccountsByCustomer(customerId: string): Promise<CreditAccount[]>;
+  createCreditAccount(account: InsertCreditAccount): Promise<CreditAccount>;
+  updateCreditAccount(id: string, account: Partial<CreditAccount>): Promise<CreditAccount | undefined>;
+  deleteCreditAccount(id: string): Promise<boolean>;
+  
+  // Credit Payment operations
+  getCreditPayments(creditAccountId: string): Promise<CreditPayment[]>;
+  getCreditPaymentsByAccount(accountId: string): Promise<CreditPayment[]>;
+  getCreditPayment(id: string): Promise<CreditPayment | undefined>;
+  createCreditPayment(payment: InsertCreditPayment): Promise<CreditPayment>;
+  updateCreditPayment(id: string, payment: Partial<CreditPayment>): Promise<CreditPayment | undefined>;
+  deleteCreditPayment(id: string): Promise<boolean>;
+  getCreditPaymentsReport(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    customerId?: string;
+    accountId?: string;
+  }): Promise<CreditPayment[]>;
 }
 
 // Configuração direta do Supabase Storage

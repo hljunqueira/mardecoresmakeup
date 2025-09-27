@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import AdminSidebar from "@/components/layout/admin-sidebar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,10 +20,9 @@ import {
   CheckCircle,
   ArrowRight,
   BarChart3,
-  Plus,
-  Calendar
+  Plus
 } from "lucide-react";
-import type { Product, FinancialTransaction, Collection, Reservation } from "@shared/schema";
+import type { Product, FinancialTransaction, Reservation, Customer, CreditAccount } from "@shared/schema";
 
 interface FinancialSummary {
   totalRevenue: number;
@@ -32,6 +31,15 @@ interface FinancialSummary {
   pendingReceivables: number;
   pendingPayables: number;
   totalTransactions: number;
+}
+
+interface CreditAccountMetrics {
+  totalAccounts: number;
+  activeAccounts: number;
+  totalCredit: number;
+  usedCredit: number;
+  availableCredit: number;
+  averageTicket: number;
 }
 
 export default function AdminDashboard() {
@@ -66,28 +74,20 @@ export default function AdminDashboard() {
     enabled: isAuthenticated,
   });
 
-  const { data: collections, isLoading: collectionsLoading } = useQuery<Collection[]>({
-    queryKey: ["/api/admin/collections"],
-    enabled: isAuthenticated,
-  });
 
   const { data: reservations, isLoading: reservationsLoading } = useQuery<Reservation[]>({
     queryKey: ["/api/admin/reservations"],
     enabled: isAuthenticated,
   });
 
-  const { data: siteViews } = useQuery({
-    queryKey: ["/api/analytics/views"],
-    queryFn: async () => {
-      const response = await fetch('/api/analytics/views');
-      if (response.ok) {
-        const data = await response.json();
-        return data.views;
-      }
-      return null;
-    },
+  const { data: customers, isLoading: customersLoading } = useQuery<Customer[]>({
+    queryKey: ["/api/admin/customers"],
     enabled: isAuthenticated,
-    refetchInterval: 30000, // Atualizar a cada 30 segundos
+  });
+
+  const { data: creditAccounts, isLoading: creditAccountsLoading } = useQuery<CreditAccount[]>({
+    queryKey: ["/api/admin/credit-accounts"],
+    enabled: isAuthenticated,
   });
 
   const formatCurrency = (value: number) => {
@@ -119,19 +119,33 @@ export default function AdminDashboard() {
   const lowStockProducts = products?.filter(p => (p.stock || 0) <= (p.minStock || 5)).length || 0;
   const featuredProducts = products?.filter(p => p.featured).length || 0;
   
-  const totalCollections = collections?.length || 0;
-  const activeCollections = collections?.filter(c => c.active !== false).length || 0;
-  
-  // Estatísticas de reservas
+
+  // Estatísticas de reservas e crediário integradas
   const totalReservations = reservations?.length || 0;
   const activeReservations = reservations?.filter(r => r.status === 'active').length || 0;
   const soldReservations = reservations?.filter(r => r.status === 'sold').length || 0;
+  const simpleReservations = reservations?.filter(r => r.type === 'simple' || !r.type).length || 0;
+  const creditReservations = reservations?.filter(r => r.type === 'credit_account').length || 0;
+  
   const totalReservedValue = reservations?.reduce((sum, r) => {
     if (r.status === 'active') {
       return sum + (r.quantity * parseFloat(r.unitPrice.toString()));
     }
     return sum;
   }, 0) || 0;
+
+  // Métricas de crediário
+  const totalCustomers = customers?.length || 0;
+  const totalCreditAccounts = creditAccounts?.length || 0;
+  const activeCreditAccounts = creditAccounts?.filter(ca => ca.status === 'active').length || 0;
+  const totalCreditLimit = creditAccounts?.reduce((sum, account) => {
+    return sum + parseFloat(account.totalAmount?.toString() || "0");
+  }, 0) || 0;
+  const usedCredit = creditAccounts?.reduce((sum, account) => {
+    return sum + parseFloat(account.paidAmount?.toString() || "0");
+  }, 0) || 0;
+  const availableCredit = totalCreditLimit - usedCredit;
+  const averageTicket = totalCustomers > 0 ? totalCreditLimit / totalCustomers : 0;
   
   const recentProducts = products?.slice(0, 3) || [];
   const recentTransactions = transactions?.slice(0, 4) || [];
@@ -185,8 +199,8 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Cards de Resumo Melhorados */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
+          {/* Cards de Resumo Integrados - Crediário + Receitas + Produtos + Clientes */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
             <Card className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
               <CardContent className="p-6 relative z-10">
@@ -238,19 +252,16 @@ export default function AdminDashboard() {
               <CardContent className="p-6 relative z-10">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-violet-100 text-sm font-medium mb-1">Visualizações do Site</p>
-                    <p className="text-3xl font-bold text-white mb-2">{siteViews?.total || 0}</p>
+                    <p className="text-violet-100 text-sm font-medium mb-1">Clientes & Crediário</p>
+                    <p className="text-3xl font-bold text-white mb-2">{totalCustomers}</p>
                     <div className="flex items-center space-x-2">
                       <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
-                        {siteViews?.today || 0} hoje
-                      </Badge>
-                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
-                        {siteViews?.thisWeek || 0} esta semana
+                        {activeCreditAccounts} contas ativas
                       </Badge>
                     </div>
                   </div>
                   <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <Eye className="h-7 w-7 text-white" />
+                    <Users className="h-7 w-7 text-white" />
                   </div>
                 </div>
               </CardContent>
@@ -261,45 +272,16 @@ export default function AdminDashboard() {
               <CardContent className="p-6 relative z-10">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-amber-100 text-sm font-medium mb-1">Saldo</p>
-                    {summaryLoading ? (
-                      <Skeleton className="h-8 w-24 mt-2 bg-amber-400/20" />
-                    ) : (
-                      <>
-                        <p className="text-3xl font-bold text-white mb-1">
-                          {formatCurrency(financialSummary?.balance || 0)}
-                        </p>
-                        <p className="text-amber-100 text-xs">
-                          {(financialSummary?.balance || 0) >= 0 ? 'Positivo' : 'Negativo'}
-                        </p>
-                      </>
-                    )}
+                    <p className="text-amber-100 text-sm font-medium mb-1">Total Valor Crediário</p>
+                    <p className="text-3xl font-bold text-white mb-1">
+                      {formatCurrency(totalCreditLimit)}
+                    </p>
+                    <p className="text-amber-100 text-xs">
+                      Ticket médio: {formatCurrency(averageTicket)}
+                    </p>
                   </div>
                   <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
                     <TrendingUp className="h-7 w-7 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="relative overflow-hidden bg-gradient-to-br from-indigo-500 via-indigo-600 to-indigo-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-              <CardContent className="p-6 relative z-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-indigo-100 text-sm font-medium mb-1">Reservas</p>
-                    <p className="text-3xl font-bold text-white mb-2">{totalReservations}</p>
-                    <div className="flex items-center space-x-2">
-                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
-                        {activeReservations} ativas
-                      </Badge>
-                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
-                        {formatCurrency(totalReservedValue)}
-                      </Badge>
-                    </div>
-                  </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <Calendar className="h-7 w-7 text-white" />
                   </div>
                 </div>
               </CardContent>
@@ -549,8 +531,8 @@ export default function AdminDashboard() {
                   className="w-full justify-start bg-white border border-petrol-200 text-petrol-700 hover:bg-petrol-50 hover:border-petrol-300 transition-all duration-300"
                   variant="outline"
                 >
-                  <Calendar className="h-4 w-4 mr-3" />
-                  Ver Reservas
+                  <Users className="h-4 w-4 mr-3" />
+                  Gestão Crediário
                 </Button>
                 
                 <Button 
@@ -571,9 +553,9 @@ export default function AdminDashboard() {
                   </h4>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                      <span className="text-sm font-medium text-green-700">A Receber:</span>
+                      <span className="text-sm font-medium text-green-700">A Receber (Crediário):</span>
                       <span className="font-bold text-green-600">
-                        {formatCurrency(financialSummary?.pendingReceivables || 0)}
+                        {formatCurrency(totalCreditLimit)}
                       </span>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">

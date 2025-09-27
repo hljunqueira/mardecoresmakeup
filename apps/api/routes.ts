@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema, insertProductRequestSchema } from "@shared/schema";
+import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema, insertProductRequestSchema, type Product } from "@shared/schema";
 import { z } from "zod";
 import * as crypto from "crypto";
 import { upload, imageUploadService } from "./upload-service";
@@ -283,13 +283,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Public product routes
-  app.get("/api/products", async (req, res) => {
+  // NOVAS APIs DE BUSCA INTELIGENTE PARA CREDIÁRIO
+  // Seguindo especificações da memória: marcas brasileiras preferidas
+  
+  // API para buscar produtos disponíveis (ativos + com estoque)
+  app.get("/api/admin/products/available", async (req, res) => {
     try {
-      const products = await storage.getActiveProducts();
-      res.json(products);
+      const { 
+        query = '',
+        category = '',
+        brand = '',
+        minStock = 0,
+        maxPrice = null,
+        featured = null
+      } = req.query;
+      
+      console.log('🔍 Busca inteligente - Parâmetros:', { query, category, brand, minStock, maxPrice, featured });
+      
+      // Buscar produtos seguindo especificações da memória:
+      // "A busca de produtos deve retornar apenas itens ativos (active=true) 
+      // com estoque disponível (stock > 0)"
+      const products = await storage.searchAvailableProducts({
+        query: query as string,
+        category: category as string || null,
+        brand: brand as string || null,
+        minStock: Number(minStock),
+        maxPrice: maxPrice ? Number(maxPrice) : null,
+        featured: featured === 'true' ? true : featured === 'false' ? false : null
+      });
+      
+      console.log('✅ Produtos encontrados:', products.length);
+      
+      res.json({
+        success: true,
+        products,
+        count: products.length,
+        filters: { query, category, brand, minStock, maxPrice, featured }
+      });
     } catch (error) {
-      res.status(500).json({ message: "Failed to fetch products" });
+      console.error('❌ Erro na busca inteligente:', error);
+      res.status(500).json({ message: "Failed to search available products" });
+    }
+  });
+  
+  // API para busca avançada de produtos com filtros
+  app.get("/api/admin/products/search", async (req, res) => {
+    try {
+      const { 
+        q: query = '',
+        categories = '',
+        brands = '',
+        priceMin = null,
+        priceMax = null,
+        activeOnly = 'true',
+        stockOnly = 'true',
+        sortBy = 'name',
+        sortOrder = 'asc',
+        limit = 50
+      } = req.query;
+      
+      console.log('🔍 Busca avançada - Parâmetros:', req.query);
+      
+      // Marcas brasileiras preferidas (conforme memória do usuário)
+      const brazilianBrands = ['Vivai', 'Ruby Rose', 'Natura', 'Avon', 'Océane', 'Eudora', 'O Boticário'];
+      
+      const searchParams = {
+        query: query as string,
+        categories: categories ? (categories as string).split(',') : [],
+        brands: brands ? (brands as string).split(',') : [],
+        priceMin: priceMin ? Number(priceMin) : null,
+        priceMax: priceMax ? Number(priceMax) : null,
+        activeOnly: activeOnly === 'true',
+        stockOnly: stockOnly === 'true',
+        sortBy: sortBy as string,
+        sortOrder: sortOrder as 'asc' | 'desc',
+        limit: Number(limit)
+      };
+      
+      const results = await storage.advancedProductSearch(searchParams);
+      
+      // Priorizar marcas brasileiras nos resultados
+      const sortedResults = results.sort((a: Product, b: Product) => {
+        const aBrazilian = brazilianBrands.includes(a.brand || '');
+        const bBrazilian = brazilianBrands.includes(b.brand || '');
+        
+        if (aBrazilian && !bBrazilian) return -1;
+        if (!aBrazilian && bBrazilian) return 1;
+        return 0;
+      });
+      
+      console.log('✅ Resultados da busca avançada:', sortedResults.length);
+      
+      res.json({
+        success: true,
+        results: sortedResults,
+        count: sortedResults.length,
+        brazilianBrandsFound: sortedResults.filter((p: Product) => brazilianBrands.includes(p.brand || '')).length,
+        searchParams
+      });
+    } catch (error) {
+      console.error('❌ Erro na busca avançada:', error);
+      res.status(500).json({ message: "Failed to perform advanced search" });
+    }
+  });
+  
+  // API para sugestões de busca com foco em marcas brasileiras
+  app.get("/api/admin/products/suggestions", async (req, res) => {
+    try {
+      const { q: query = '', limit = 10 } = req.query;
+      
+      // Marcas brasileiras sugeridas (conforme preferência do usuário)
+      const brazilianBrandSuggestions = [
+        'Vivai', 'Ruby Rose', 'Natura', 'Avon', 'Océane', 
+        'Eudora', 'O Boticário', 'Quem Disse Berenice', 'Vult'
+      ];
+      
+      // Categorias populares de maquiagem
+      const categorySuggestions = [
+        'Base', 'Corretivo', 'Pó Compacto', 'Blush', 'Bronzer',
+        'Sombra', 'Delineador', 'Máscara de Cílios', 'Batom', 
+        'Gloss', 'Lápis de Olho', 'Lápis de Boca'
+      ];
+      
+      const suggestions = {
+        brands: brazilianBrandSuggestions.filter(brand => 
+          brand.toLowerCase().includes((query as string).toLowerCase())
+        ).slice(0, Number(limit) / 2),
+        categories: categorySuggestions.filter(cat => 
+          cat.toLowerCase().includes((query as string).toLowerCase())
+        ).slice(0, Number(limit) / 2)
+      };
+      
+      // Se não há query, retornar sugestões populares
+      if (!query) {
+        suggestions.brands = brazilianBrandSuggestions.slice(0, 5);
+        suggestions.categories = categorySuggestions.slice(0, 5);
+      }
+      
+      res.json({
+        success: true,
+        suggestions,
+        query,
+        note: "Sugestões priorizando marcas brasileiras conforme preferência"
+      });
+    } catch (error) {
+      console.error('❌ Erro ao buscar sugestões:', error);
+      res.status(500).json({ message: "Failed to fetch suggestions" });
     }
   });
 
@@ -434,6 +573,547 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch reservations" });
     }
   });
+  
+  // ================================================================
+  // NOVAS APIs DE GESTÃO DE CLIENTES PARA CREDIÁRIO
+  // ================================================================
+  
+  // Listar todos os clientes
+  app.get("/api/admin/customers", async (req, res) => {
+    try {
+      const customers = await storage.getAllCustomers();
+      console.log('✅ Clientes encontrados:', customers.length);
+      res.json(customers);
+    } catch (error) {
+      console.error('❌ Erro ao buscar clientes:', error);
+      res.status(500).json({ message: "Failed to fetch customers" });
+    }
+  });
+  
+  // Buscar cliente por ID
+  app.get("/api/admin/customers/:id", async (req, res) => {
+    try {
+      const customer = await storage.getCustomer(req.params.id);
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      res.json(customer);
+    } catch (error) {
+      console.error('❌ Erro ao buscar cliente:', error);
+      res.status(500).json({ message: "Failed to fetch customer" });
+    }
+  });
+  
+  // Buscar clientes por termo (nome, email, telefone, CPF)
+  app.get("/api/admin/customers/search", async (req, res) => {
+    try {
+      const { q: query = '' } = req.query;
+      
+      if (!query || typeof query !== 'string') {
+        return res.status(400).json({ message: "Parâmetro 'q' (query) é obrigatório" });
+      }
+      
+      console.log('🔍 Buscando clientes com termo:', query);
+      const customers = await storage.searchCustomers(query);
+      
+      console.log('✅ Clientes encontrados na busca:', customers.length);
+      res.json({
+        success: true,
+        customers,
+        count: customers.length,
+        query
+      });
+    } catch (error) {
+      console.error('❌ Erro na busca de clientes:', error);
+      res.status(500).json({ message: "Failed to search customers" });
+    }
+  });
+  
+  // Criar novo cliente
+  app.post("/api/admin/customers", async (req, res) => {
+    try {
+      console.log('🔍 POST /api/admin/customers - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      // Validação básica
+      const { name, email } = req.body;
+      
+      if (!name || !email) {
+        return res.status(400).json({ 
+          message: "Nome e email são obrigatórios",
+          required: ['name', 'email']
+        });
+      }
+      
+      // Verificar se já existe cliente com esse email
+      const existingCustomer = await storage.getCustomerByEmail(email);
+      if (existingCustomer) {
+        return res.status(409).json({ 
+          message: "Já existe um cliente com este email",
+          existingCustomerId: existingCustomer.id
+        });
+      }
+      
+      const customer = await storage.createCustomer(req.body);
+      console.log('✅ Cliente criado com sucesso:', customer.id);
+      
+      res.status(201).json(customer);
+    } catch (error) {
+      console.error('❌ Erro ao criar cliente:', error);
+      res.status(500).json({ message: "Failed to create customer" });
+    }
+  });
+  
+  // Atualizar cliente
+  app.put("/api/admin/customers/:id", async (req, res) => {
+    try {
+      console.log('🔍 PUT /api/admin/customers - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      const customer = await storage.updateCustomer(req.params.id, req.body);
+      if (!customer) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      
+      console.log('✅ Cliente atualizado com sucesso:', customer.id);
+      res.json(customer);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar cliente:', error);
+      res.status(500).json({ message: "Failed to update customer" });
+    }
+  });
+  
+  // Deletar cliente
+  app.delete("/api/admin/customers/:id", async (req, res) => {
+    try {
+      console.log('🗑️ Tentando deletar cliente:', req.params.id);
+      
+      const deleted = await storage.deleteCustomer(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Customer not found" });
+      }
+      
+      console.log('✅ Cliente deletado:', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Erro ao deletar cliente:', error);
+      res.status(500).json({ message: "Failed to delete customer" });
+    }
+  });
+  
+  // Buscar contas de crediário de um cliente específico
+  app.get("/api/admin/customers/:id/credit-accounts", async (req, res) => {
+    try {
+      console.log('🔍 Buscando contas do cliente:', req.params.id);
+      
+      const accounts = await storage.getCreditAccountsByCustomer(req.params.id);
+      console.log('✅ Contas encontradas:', accounts.length);
+      
+      res.json(accounts);
+    } catch (error) {
+      console.error('❌ Erro ao buscar contas do cliente:', error);
+      res.status(500).json({ message: "Failed to fetch customer credit accounts" });
+    }
+  });
+
+  // Dashboard consolidado - Métricas integradas de crediário e reservas
+  app.get("/api/admin/dashboard/metrics", async (req, res) => {
+    try {
+      // Buscar dados básicos
+      const products = await storage.getAllProducts();
+      const reservations = await storage.getAllReservations();
+      const customers = await storage.getAllCustomers();
+      const creditAccounts = await storage.getAllCreditAccounts();
+      const transactions = await storage.getAllTransactions();
+      
+      // Métricas de produtos
+      const totalProducts = products.length;
+      const activeProducts = products.filter(p => p.active !== false).length;
+      const lowStockProducts = products.filter(p => (p.stock || 0) <= (p.minStock || 5)).length;
+      const featuredProducts = products.filter(p => p.featured).length;
+      
+      // Métricas de reservas segmentadas
+      const totalReservations = reservations.length;
+      const activeReservations = reservations.filter(r => r.status === 'active').length;
+      const soldReservations = reservations.filter(r => r.status === 'sold').length;
+      const simpleReservations = reservations.filter(r => r.type === 'simple' || !r.type).length;
+      const creditReservations = reservations.filter(r => r.type === 'credit_account').length;
+      
+      const totalReservedValue = reservations
+        .filter(r => r.status === 'active')
+        .reduce((sum, r) => sum + (r.quantity * parseFloat(r.unitPrice.toString())), 0);
+      
+      // Métricas de crediário
+      const totalCustomers = customers.length;
+      const totalCreditAccounts = creditAccounts.length;
+      const activeCreditAccounts = creditAccounts.filter(ca => ca.status === 'active').length;
+      
+      const totalCreditLimit = creditAccounts.reduce((sum, account) => {
+        return sum + parseFloat(account.totalAmount?.toString() || "0");
+      }, 0);
+      
+      const usedCredit = creditAccounts.reduce((sum, account) => {
+        return sum + parseFloat(account.paidAmount?.toString() || "0");
+      }, 0);
+      
+      const availableCredit = totalCreditLimit - usedCredit;
+      const averageTicket = totalCustomers > 0 ? totalCreditLimit / totalCustomers : 0;
+      const conversionRate = totalCustomers > 0 ? (activeCreditAccounts / totalCustomers) * 100 : 0;
+      
+      // Métricas financeiras
+      const totalRevenue = transactions
+        .filter(t => t.type === "income" && t.status === "completed")
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      const totalExpenses = transactions
+        .filter(t => t.type === "expense" && t.status === "completed")
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      const balance = totalRevenue - totalExpenses;
+      
+      // Análise de performance por período
+      const last30Days = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      
+      const recentCreditAccounts = creditAccounts.filter(ca => 
+        new Date(ca.createdAt || Date.now()) >= last30Days
+      ).length;
+      
+      const recentReservations = reservations.filter(r => 
+        new Date(r.createdAt || Date.now()) >= last30Days
+      ).length;
+      
+      res.json({
+        // Métricas gerais
+        totalProducts,
+        activeProducts,
+        lowStockProducts,
+        featuredProducts,
+        
+        // Métricas de reservas
+        totalReservations,
+        activeReservations,
+        soldReservations,
+        simpleReservations,
+        creditReservations,
+        totalReservedValue,
+        
+        // Métricas de crediário
+        totalCustomers,
+        totalCreditAccounts,
+        activeCreditAccounts,
+        totalCreditLimit,
+        usedCredit,
+        availableCredit,
+        averageTicket,
+        conversionRate,
+        
+        // Métricas financeiras
+        totalRevenue,
+        totalExpenses,
+        balance,
+        
+        // Performance recente
+        recent: {
+          creditAccounts: recentCreditAccounts,
+          reservations: recentReservations,
+          period: '30 dias'
+        },
+        
+        // Análises
+        insights: {
+          creditUtilization: totalCreditLimit > 0 ? (usedCredit / totalCreditLimit) * 100 : 0,
+          creditAvailability: totalCreditLimit > 0 ? (availableCredit / totalCreditLimit) * 100 : 0,
+          customerEngagement: conversionRate,
+          systemHealth: {
+            totalAccounts: totalCreditAccounts,
+            activeAccounts: activeCreditAccounts,
+            migrationComplete: true
+          }
+        },
+        
+        timestamp: new Date().toISOString()
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao buscar métricas do dashboard:', error);
+      res.status(500).json({ message: "Failed to fetch dashboard metrics" });
+    }
+  });
+  
+  // ================================================================
+  // APIs DE CONTAS DE CREDIÁRIO
+  // ================================================================
+  
+  // Listar todas as contas de crediário
+  app.get("/api/admin/credit-accounts", async (req, res) => {
+    try {
+      const accounts = await storage.getAllCreditAccounts();
+      console.log('✅ Contas de crediário encontradas:', accounts.length);
+      res.json(accounts);
+    } catch (error) {
+      console.error('❌ Erro ao buscar contas de crediário:', error);
+      res.status(500).json({ message: "Failed to fetch credit accounts" });
+    }
+  });
+  
+  // Buscar conta de crediário por ID
+  app.get("/api/admin/credit-accounts/:id", async (req, res) => {
+    try {
+      const account = await storage.getCreditAccount(req.params.id);
+      if (!account) {
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      res.json(account);
+    } catch (error) {
+      console.error('❌ Erro ao buscar conta de crediário:', error);
+      res.status(500).json({ message: "Failed to fetch credit account" });
+    }
+  });
+  
+  // Criar nova conta de crediário
+  app.post("/api/admin/credit-accounts", async (req, res) => {
+    try {
+      console.log('🔍 POST /api/admin/credit-accounts - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      // Validação básica
+      const { customerId, totalAmount } = req.body;
+      
+      if (!customerId || !totalAmount) {
+        return res.status(400).json({ 
+          message: "Customer ID e valor total são obrigatórios",
+          required: ['customerId', 'totalAmount']
+        });
+      }
+      
+      // Verificar se o cliente existe
+      const customer = await storage.getCustomer(customerId);
+      if (!customer) {
+        return res.status(404).json({ 
+          message: "Cliente não encontrado",
+          customerId
+        });
+      }
+      
+      // Converter nextPaymentDate de string para Date se necessário
+      const accountData = { ...req.body };
+      if (accountData.nextPaymentDate && typeof accountData.nextPaymentDate === 'string') {
+        // Criar um objeto Date válido a partir da string
+        const dateObj = new Date(accountData.nextPaymentDate + 'T00:00:00.000Z');
+        
+        // Verificar se a data é válida
+        if (isNaN(dateObj.getTime())) {
+          console.log('❌ Data inválida:', accountData.nextPaymentDate);
+          return res.status(400).json({ message: "Invalid date format" });
+        }
+        
+        accountData.nextPaymentDate = dateObj;
+        console.log('🔄 Data de pagamento convertida:', accountData.nextPaymentDate, 'ISO:', accountData.nextPaymentDate.toISOString());
+      }
+      
+      const account = await storage.createCreditAccount(accountData);
+      console.log('✅ Conta de crediário criada:', account.id);
+      
+      res.status(201).json(account);
+    } catch (error) {
+      console.error('❌ Erro ao criar conta de crediário:', error);
+      res.status(500).json({ message: "Failed to create credit account" });
+    }
+  });
+  
+  // Atualizar conta de crediário
+  app.put("/api/admin/credit-accounts/:id", async (req, res) => {
+    try {
+      console.log('🔍 PUT /api/admin/credit-accounts - ID:', req.params.id);
+      console.log('🔍 PUT /api/admin/credit-accounts - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      // Converter nextPaymentDate de string para Date se necessário
+      const updateData = { ...req.body };
+      if (updateData.nextPaymentDate && typeof updateData.nextPaymentDate === 'string') {
+        // Criar um objeto Date válido a partir da string
+        const dateObj = new Date(updateData.nextPaymentDate + 'T00:00:00.000Z');
+        
+        // Verificar se a data é válida
+        if (isNaN(dateObj.getTime())) {
+          console.log('❌ Data inválida:', updateData.nextPaymentDate);
+          return res.status(400).json({ message: "Invalid date format" });
+        }
+        
+        updateData.nextPaymentDate = dateObj;
+        console.log('🔄 Data convertida:', updateData.nextPaymentDate, 'ISO:', updateData.nextPaymentDate.toISOString());
+      }
+      
+      const account = await storage.updateCreditAccount(req.params.id, updateData);
+      if (!account) {
+        console.log('❌ Conta de crediário não encontrada:', req.params.id);
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      console.log('✅ Conta de crediário atualizada com sucesso:', account.id);
+      res.json(account);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar conta de crediário:', error);
+      res.status(500).json({ message: "Failed to update credit account" });
+    }
+  });
+
+  // ================================================================
+  // APIs DE PAGAMENTOS DE CREDIÁRIO
+  // ================================================================
+  
+  // Listar todos os pagamentos de uma conta de crediário
+  app.get("/api/admin/credit-accounts/:accountId/payments", async (req, res) => {
+    try {
+      const payments = await storage.getCreditPayments(req.params.accountId);
+      console.log('✅ Pagamentos encontrados:', payments.length);
+      res.json(payments);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pagamentos:', error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+  
+  // Registrar novo pagamento
+  app.post("/api/admin/credit-payments", async (req, res) => {
+    try {
+      console.log('🔍 POST /api/admin/credit-payments - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      // Validação básica
+      const { creditAccountId, amount, paymentMethod } = req.body;
+      
+      if (!creditAccountId || !amount || !paymentMethod) {
+        return res.status(400).json({ 
+          message: "Account ID, valor e método de pagamento são obrigatórios",
+          required: ['creditAccountId', 'amount', 'paymentMethod']
+        });
+      }
+      
+      // Verificar se a conta existe
+      const account = await storage.getCreditAccount(creditAccountId);
+      if (!account) {
+        return res.status(404).json({ 
+          message: "Conta de crediário não encontrada",
+          creditAccountId
+        });
+      }
+      
+      // Verificar se o valor não excede o pendente
+      const remainingAmount = parseFloat(account.remainingAmount?.toString() || "0");
+      const paymentAmount = parseFloat(amount.toString());
+      
+      if (paymentAmount > remainingAmount) {
+        return res.status(400).json({ 
+          message: `Valor do pagamento (R$ ${paymentAmount.toFixed(2)}) excede o valor pendente (R$ ${remainingAmount.toFixed(2)})`,
+          maxAmount: remainingAmount
+        });
+      }
+      
+      const payment = await storage.createCreditPayment(req.body);
+      console.log('✅ Pagamento registrado:', payment.id);
+      
+      res.status(201).json(payment);
+    } catch (error) {
+      console.error('❌ Erro ao registrar pagamento:', error);
+      res.status(500).json({ message: "Failed to create payment" });
+    }
+  });
+  
+  // Buscar pagamento por ID
+  app.get("/api/admin/credit-payments/:id", async (req, res) => {
+    try {
+      // Como não temos método getCreditPayment, vamos implementar busca simples
+      const allPayments = await storage.getCreditPayments('');
+      const payment = allPayments.find(p => p.id === req.params.id);
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      res.json(payment);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pagamento:', error);
+      res.status(500).json({ message: "Failed to fetch payment" });
+    }
+  });
+  
+  // Atualizar pagamento
+  app.put("/api/admin/credit-payments/:id", async (req, res) => {
+    try {
+      console.log('🔍 PUT /api/admin/credit-payments - Dados recebidos:', JSON.stringify(req.body, null, 2));
+      
+      const payment = await storage.updateCreditPayment(req.params.id, req.body);
+      if (!payment) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      
+      console.log('✅ Pagamento atualizado:', payment.id);
+      res.json(payment);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar pagamento:', error);
+      res.status(500).json({ message: "Failed to update payment" });
+    }
+  });
+  
+  // Cancelar pagamento
+  app.delete("/api/admin/credit-payments/:id", async (req, res) => {
+    try {
+      console.log('🗑️ Cancelando pagamento:', req.params.id);
+      
+      const deleted = await storage.deleteCreditPayment(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Payment not found" });
+      }
+      
+      console.log('✅ Pagamento cancelado:', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Erro ao cancelar pagamento:', error);
+      res.status(500).json({ message: "Failed to cancel payment" });
+    }
+  });
+  
+  // Relatório de pagamentos (período específico)
+  app.get("/api/admin/credit-payments/report", async (req, res) => {
+    try {
+      const { startDate, endDate, customerId, accountId } = req.query;
+      
+      // Por enquanto, buscar todos os pagamentos e filtrar depois
+      const allPayments = await storage.getCreditPayments('');
+      let payments = allPayments;
+      
+      // Filtrar por datas se fornecidas
+      if (startDate || endDate) {
+        payments = payments.filter(p => {
+          const paymentDate = new Date(p.createdAt || new Date());
+          const start = startDate ? new Date(startDate as string) : new Date('1900-01-01');
+          const end = endDate ? new Date(endDate as string) : new Date();
+          return paymentDate >= start && paymentDate <= end;
+        });
+      }
+      
+      // Filtrar por conta se fornecido
+      if (accountId) {
+        payments = payments.filter(p => p.creditAccountId === accountId);
+      }
+      
+      const totalAmount = payments.reduce((sum: number, p: any) => sum + parseFloat(p.amount.toString()), 0);
+      const paymentMethods = payments.reduce((acc: Record<string, number>, p: any) => {
+        acc[p.paymentMethod] = (acc[p.paymentMethod] || 0) + parseFloat(p.amount.toString());
+        return acc;
+      }, {} as Record<string, number>);
+      
+      res.json({
+        payments,
+        summary: {
+          totalPayments: payments.length,
+          totalAmount,
+          paymentMethods,
+          period: {
+            startDate: startDate || 'Início',
+            endDate: endDate || 'Hoje'
+          }
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao gerar relatório de pagamentos:', error);
+      res.status(500).json({ message: "Failed to generate payments report" });
+    }
+  });
 
   // Admin reservations routes
   app.get("/api/admin/reservations", async (req, res) => {
@@ -530,47 +1210,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Admin collection routes
-  app.post("/api/admin/collections", async (req, res) => {
-    try {
-      const collectionData = insertCollectionSchema.parse(req.body);
-      const collection = await storage.createCollection(collectionData);
-      res.status(201).json(collection);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid collection data", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to create collection" });
-    }
-  });
-
-  app.put("/api/admin/collections/:id", async (req, res) => {
-    try {
-      const collectionData = insertCollectionSchema.partial().parse(req.body);
-      const collection = await storage.updateCollection(req.params.id, collectionData);
-      if (!collection) {
-        return res.status(404).json({ message: "Collection not found" });
-      }
-      res.json(collection);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid collection data", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to update collection" });
-    }
-  });
-
-  app.delete("/api/admin/collections/:id", async (req, res) => {
-    try {
-      const deleted = await storage.deleteCollection(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ message: "Collection not found" });
-      }
-      res.json({ success: true });
-    } catch (error) {
-      res.status(500).json({ message: "Failed to delete collection" });
-    }
-  });
 
   // Admin coupon routes
   app.get("/api/admin/coupons", async (req, res) => {
@@ -748,58 +1387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Sistema de visualizações do site (usando banco de dados)
-  app.post("/api/analytics/view", async (req, res) => {
-    try {
-      console.log('📊 Recebendo dados de visualização:', req.body);
-      
-      const { page, userAgent } = req.body || {};
-      
-      // Registrar visualização no banco
-      await storage.recordSiteView({
-        page: page || req.path || '/',
-        userAgent: userAgent || req.headers['user-agent'] || null,
-        sessionId: req.headers['x-session-id'] as string || null,
-        ipAddress: req.ip || req.headers['x-forwarded-for'] as string || null,
-        metadata: {
-          timestamp: new Date().toISOString(),
-          referer: req.headers.referer || null,
-        },
-      });
-      
-      // Buscar estatísticas atualizadas
-      const stats = await storage.getSiteViewsStats();
-      
-      console.log('📊 Visualização registrada - Total:', stats.total);
-      
-      res.json({ success: true, views: stats });
-    } catch (error) {
-      console.error('❌ Erro ao registrar visualização:', error);
-      res.status(500).json({ message: "Failed to record view", error: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-  
-  // Rota para buscar estatísticas de visualizações
-  app.get("/api/analytics/views", async (req, res) => {
-    try {
-      const stats = await storage.getSiteViewsStats();
-      res.json({ success: true, views: stats });
-    } catch (error) {
-      console.error('❌ Erro ao buscar visualizações:', error);
-      res.status(500).json({ message: "Failed to fetch views" });
-    }
-  });
-  
-  // Rota para contagem de visualizações (compatibilidade)
-  app.get("/api/admin/analytics/visits", async (req, res) => {
-    try {
-      // Retorna as visualizações do nosso sistema do banco de dados
-      const stats = await storage.getSiteViewsStats();
-      res.json(stats.total);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to fetch visits count" });
-    }
-  });
+
   app.get("/api/admin/financial/summary", async (req, res) => {
     try {
       const transactions = await storage.getAllTransactions();
@@ -854,7 +1442,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const transactions = await storage.getAllTransactions();
       const reservations = await storage.getAllReservations();
       const coupons = await storage.getAllCoupons();
-      const siteViewsStats = await storage.getSiteViewsStats();
       
       // Calcular métricas reais
       const totalRevenue = transactions
@@ -983,9 +1570,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         activeReservations,
         soldReservations, 
         reservedValue,
-        totalViews: siteViewsStats.total,
-        viewsToday: siteViewsStats.today,
-        viewsThisWeek: siteViewsStats.thisWeek,
         topProducts: sortedTopProducts,
         salesByMonth,
         lowStockProducts,
@@ -1057,6 +1641,215 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('❌ Erro ao deletar solicitação:', error);
       res.status(500).json({ message: "Erro ao deletar solicitação" });
+    }
+  });
+
+  // ================================================================
+  // FASE 7: APIs ESPECIALIZADAS PARA CREDIÁRIO
+  // ================================================================
+
+  // API de Analytics Avançados de Crediário
+  app.get("/api/admin/credit/analytics", async (req, res) => {
+    try {
+      const { 
+        startDate, 
+        endDate, 
+        customerId, 
+        accountStatus = 'all' 
+      } = req.query;
+      
+      console.log('📊 Gerando analytics de crediário:', { startDate, endDate, customerId, accountStatus });
+      
+      // Buscar todas as contas
+      const allAccounts = await storage.getAllCreditAccounts();
+      const allCustomers = await storage.getAllCustomers();
+      
+      // Filtrar por data se especificado
+      let filteredAccounts = allAccounts;
+      if (startDate && endDate) {
+        const start = new Date(startDate as string);
+        const end = new Date(endDate as string);
+        filteredAccounts = allAccounts.filter(account => {
+          const accountDate = account.createdAt ? new Date(account.createdAt) : new Date();
+          return accountDate >= start && accountDate <= end;
+        });
+      }
+      
+      // Filtrar por cliente se especificado
+      if (customerId) {
+        filteredAccounts = filteredAccounts.filter(account => account.customerId === customerId);
+      }
+      
+      // Filtrar por status se especificado
+      if (accountStatus !== 'all') {
+        filteredAccounts = filteredAccounts.filter(account => account.status === accountStatus);
+      }
+      
+      // Calcular métricas principais
+      const totalAccounts = filteredAccounts.length;
+      const activeAccounts = filteredAccounts.filter(acc => acc.status === 'active').length;
+      const closedAccounts = filteredAccounts.filter(acc => acc.status === 'closed' || acc.status === 'paid_off').length;
+      const suspendedAccounts = filteredAccounts.filter(acc => acc.status === 'suspended').length;
+      
+      const totalCreditValue = filteredAccounts.reduce((sum, acc) => 
+        sum + parseFloat(acc.totalAmount?.toString() || '0'), 0
+      );
+      
+      const totalPaidValue = filteredAccounts.reduce((sum, acc) => 
+        sum + parseFloat(acc.paidAmount?.toString() || '0'), 0
+      );
+      
+      const totalPendingValue = filteredAccounts.reduce((sum, acc) => 
+        sum + parseFloat(acc.remainingAmount?.toString() || '0'), 0
+      );
+      
+      // Contas vencidas
+      const overdueAccounts = filteredAccounts.filter(acc => {
+        if (acc.status !== 'active') return false;
+        const nextPayment = acc.nextPaymentDate ? new Date(acc.nextPaymentDate) : null;
+        return nextPayment && nextPayment < new Date();
+      }).length;
+      
+      // Taxa de pagamento
+      const paymentRate = totalCreditValue > 0 ? (totalPaidValue / totalCreditValue) * 100 : 0;
+      
+      // Ticket médio
+      const averageTicket = totalAccounts > 0 ? totalCreditValue / totalAccounts : 0;
+      
+      // Top 10 clientes por valor
+      const customerStats = allCustomers.map(customer => {
+        const customerAccounts = filteredAccounts.filter(acc => acc.customerId === customer.id);
+        const totalCustomerCredit = customerAccounts.reduce((sum, acc) => 
+          sum + parseFloat(acc.totalAmount?.toString() || '0'), 0
+        );
+        const totalCustomerPaid = customerAccounts.reduce((sum, acc) => 
+          sum + parseFloat(acc.paidAmount?.toString() || '0'), 0
+        );
+        const totalCustomerPending = customerAccounts.reduce((sum, acc) => 
+          sum + parseFloat(acc.remainingAmount?.toString() || '0'), 0
+        );
+        
+        return {
+          customer,
+          accountsCount: customerAccounts.length,
+          totalCredit: totalCustomerCredit,
+          totalPaid: totalCustomerPaid,
+          totalPending: totalCustomerPending,
+          paymentRate: totalCustomerCredit > 0 ? (totalCustomerPaid / totalCustomerCredit) * 100 : 0
+        };
+      })
+      .filter(stat => stat.totalCredit > 0)
+      .sort((a, b) => b.totalCredit - a.totalCredit)
+      .slice(0, 10);
+      
+      const analytics = {
+        summary: {
+          totalAccounts,
+          activeAccounts,
+          closedAccounts,
+          suspendedAccounts,
+          overdueAccounts,
+          totalCreditValue,
+          totalPaidValue,
+          totalPendingValue,
+          paymentRate,
+          averageTicket
+        },
+        topCustomers: customerStats,
+        filters: {
+          startDate,
+          endDate,
+          customerId,
+          accountStatus,
+          appliedAccountsCount: totalAccounts
+        }
+      };
+      
+      console.log('✅ Analytics gerados para', totalAccounts, 'contas');
+      res.json(analytics);
+    } catch (error) {
+      console.error('❌ Erro ao gerar analytics:', error);
+      res.status(500).json({ message: "Failed to generate analytics" });
+    }
+  });
+
+  // API de Alertas de Crediário
+  app.get("/api/admin/credit/alerts", async (req, res) => {
+    try {
+      console.log('🚨 Gerando alertas de crediário');
+      
+      const accounts = await storage.getAllCreditAccounts();
+      const customers = await storage.getAllCustomers();
+      const now = new Date();
+      
+      const alerts: any[] = [];
+      
+      // Alertas de contas vencidas
+      const overdueAccounts = accounts.filter(account => {
+        if (account.status !== 'active') return false;
+        const nextPayment = account.nextPaymentDate ? new Date(account.nextPaymentDate) : null;
+        return nextPayment && nextPayment < now;
+      });
+      
+      overdueAccounts.forEach(account => {
+        const customer = customers.find(c => c.id === account.customerId);
+        const daysPastDue = account.nextPaymentDate ? 
+          Math.ceil((now.getTime() - new Date(account.nextPaymentDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        
+        alerts.push({
+          type: 'overdue',
+          severity: daysPastDue > 30 ? 'high' : daysPastDue > 15 ? 'medium' : 'low',
+          title: 'Conta Vencida',
+          message: `Conta ${account.accountNumber} de ${customer?.name || 'Cliente desconhecido'} está ${daysPastDue} dias em atraso`,
+          account,
+          customer,
+          daysPastDue,
+          amount: parseFloat(account.remainingAmount?.toString() || '0')
+        });
+      });
+      
+      // Alertas de vencimento próximo (próximos 7 dias)
+      const upcomingDue = accounts.filter(account => {
+        if (account.status !== 'active') return false;
+        const nextPayment = account.nextPaymentDate ? new Date(account.nextPaymentDate) : null;
+        if (!nextPayment) return false;
+        
+        const daysUntilDue = Math.ceil((nextPayment.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return daysUntilDue >= 0 && daysUntilDue <= 7;
+      });
+      
+      upcomingDue.forEach(account => {
+        const customer = customers.find(c => c.id === account.customerId);
+        const daysUntilDue = account.nextPaymentDate ? 
+          Math.ceil((new Date(account.nextPaymentDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+        
+        alerts.push({
+          type: 'upcoming_due',
+          severity: daysUntilDue <= 2 ? 'medium' : 'low',
+          title: 'Vencimento Próximo',
+          message: `Conta ${account.accountNumber} de ${customer?.name || 'Cliente desconhecido'} vence em ${daysUntilDue} dias`,
+          account,
+          customer,
+          daysUntilDue,
+          amount: parseFloat(account.remainingAmount?.toString() || '0')
+        });
+      });
+      
+      const alertsSummary = {
+        total: alerts.length,
+        high: alerts.filter(a => a.severity === 'high').length,
+        medium: alerts.filter(a => a.severity === 'medium').length,
+        low: alerts.filter(a => a.severity === 'low').length
+      };
+      
+      console.log('✅ Alertas gerados:', alerts.length);
+      res.json({
+        summary: alertsSummary,
+        alerts
+      });
+    } catch (error) {
+      console.error('❌ Erro ao gerar alertas:', error);
+      res.status(500).json({ message: "Failed to generate alerts" });
     }
   });
 

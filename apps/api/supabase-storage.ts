@@ -23,14 +23,18 @@ import type {
   InsertSupplier,
   ProductImage,
   InsertProductImage,
-  SiteView,
-  InsertSiteView,
-  Analytics,
-  InsertAnalytics,
   Reservation,
   InsertReservation,
   ProductRequest,
   InsertProductRequest,
+  Customer,
+  InsertCustomer,
+  CustomerAddress,
+  InsertCustomerAddress,
+  CreditAccount,
+  InsertCreditAccount,
+  CreditPayment,
+  InsertCreditPayment,
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
@@ -516,86 +520,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  // === OPERAÇÕES DE ANALYTICS ===
-  
-  async recordSiteView(view: InsertSiteView): Promise<SiteView> {
-    // Implementar usando analytics
-    await this.recordAnalytic({
-      date: new Date(),
-      metric: 'page_view',
-      value: 1,
-      metadata: JSON.stringify({ page: view.page, userAgent: view.userAgent })
-    });
-    
-    return {
-      id: 'site-view-' + Date.now(),
-      page: view.page,
-      userAgent: view.userAgent,
-      timestamp: new Date()
-    } as SiteView;
-  }
 
-  async getSiteViews(): Promise<SiteView[]> {
-    const analytics = await db.select().from(schema.analytics)
-      .where(eq(schema.analytics.metric, 'page_view'))
-      .orderBy(schema.analytics.date);
-    
-    return analytics.map(a => {
-      const metadata = a.metadata ? JSON.parse(a.metadata) : {};
-      return {
-        id: a.id,
-        page: metadata.page || 'unknown',
-        userAgent: metadata.userAgent || 'unknown',
-        timestamp: a.date
-      };
-    }) as SiteView[];
-  }
-
-  async recordAnalytic(analytic: InsertAnalytics): Promise<Analytics> {
-    const result = await db.insert(schema.analytics).values({
-      ...analytic,
-      createdAt: new Date()
-    }).returning();
-    return result[0];
-  }
-
-  async getAnalytics(metric: string, period?: number): Promise<Analytics[]> {
-    if (period) {
-      const cutoffDate = new Date(Date.now() - (period * 24 * 60 * 60 * 1000));
-      return await db.select().from(schema.analytics)
-        .where(and(
-          eq(schema.analytics.metric, metric),
-          gte(schema.analytics.date, cutoffDate)
-        ))
-        .orderBy(schema.analytics.date);
-    }
-    
-    return await db.select().from(schema.analytics)
-      .where(eq(schema.analytics.metric, metric))
-      .orderBy(schema.analytics.date);
-  }
-
-  async getSiteViewsStats(): Promise<{ total: number; today: number; thisWeek: number; thisMonth: number }> {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const thisWeek = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    
-    const allViews = await db.select().from(schema.analytics)
-      .where(eq(schema.analytics.metric, 'page_view'));
-    
-    const total = allViews.length;
-    const todayViews = allViews.filter(v => v.date >= today).length;
-    const thisWeekViews = allViews.filter(v => v.date >= thisWeek).length;
-    const thisMonthViews = allViews.filter(v => v.date >= thisMonth).length;
-    
-    return {
-      total,
-      today: todayViews,
-      thisWeek: thisWeekViews,
-      thisMonth: thisMonthViews
-    };
-  }
 
   // Reservation operations
   async getAllReservations(): Promise<Reservation[]> {
@@ -676,5 +601,448 @@ export class SupabaseStorage implements IStorage {
       .where(eq(schema.productRequests.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  // ================================================================
+  // NOVOS MÉTODOS DE BUSCA INTELIGENTE PARA CREDIÁRIO
+  // Seguindo especificações da memória: marcas brasileiras preferidas
+  // ================================================================
+
+  async searchAvailableProducts(filters: {
+    query: string;
+    category: string | null;
+    brand: string | null;
+    minStock: number;
+    maxPrice: number | null;
+    featured: boolean | null;
+  }): Promise<Product[]> {
+    try {
+      // "A busca de produtos deve retornar apenas itens ativos (active=true) 
+      // com estoque disponível (stock > 0)"
+      
+      let query = db.select().from(schema.products)
+        .where(
+          and(
+            eq(schema.products.active, true),
+            gte(schema.products.stock, filters.minStock)
+          )
+        );
+
+      // Aplicar filtros adicionais
+      const conditions = [
+        eq(schema.products.active, true),
+        gte(schema.products.stock, filters.minStock)
+      ];
+
+      // Filtro de texto (nome, descrição, marca)
+      if (filters.query) {
+        const searchCondition = sql`(
+          LOWER(${schema.products.name}) LIKE LOWER(${'%' + filters.query + '%'}) OR 
+          LOWER(${schema.products.description}) LIKE LOWER(${'%' + filters.query + '%'}) OR 
+          LOWER(${schema.products.brand}) LIKE LOWER(${'%' + filters.query + '%'})
+        )`;
+        conditions.push(searchCondition);
+      }
+
+      // Filtro de categoria
+      if (filters.category) {
+        conditions.push(eq(schema.products.category, filters.category));
+      }
+
+      // Filtro de marca
+      if (filters.brand) {
+        conditions.push(eq(schema.products.brand, filters.brand));
+      }
+
+      // Filtro de preço máximo
+      if (filters.maxPrice) {
+        conditions.push(sql`CAST(${schema.products.price} AS DECIMAL) <= ${filters.maxPrice}`);
+      }
+
+      // Filtro de destaque
+      if (filters.featured !== null) {
+        conditions.push(eq(schema.products.featured, filters.featured));
+      }
+
+      const result = await db.select().from(schema.products)
+        .where(and(...conditions))
+        .orderBy(
+          schema.products.featured, // Destacados primeiro
+          schema.products.name
+        )
+        .limit(50);
+
+      return result;
+    } catch (error) {
+      console.error('❌ Erro na busca inteligente de produtos:', error);
+      throw error;
+    }
+  }
+
+  async advancedProductSearch(params: {
+    query: string;
+    categories: string[];
+    brands: string[];
+    priceMin: number | null;
+    priceMax: number | null;
+    activeOnly: boolean;
+    stockOnly: boolean;
+    sortBy: string;
+    sortOrder: 'asc' | 'desc';
+    limit: number;
+  }): Promise<Product[]> {
+    try {
+      const conditions = [];
+
+      // Filtro de ativo
+      if (params.activeOnly) {
+        conditions.push(eq(schema.products.active, true));
+      }
+
+      // Filtro de estoque
+      if (params.stockOnly) {
+        conditions.push(sql`${schema.products.stock} > 0`);
+      }
+
+      // Busca por texto
+      if (params.query) {
+        const searchCondition = sql`(
+          LOWER(${schema.products.name}) LIKE LOWER(${'%' + params.query + '%'}) OR 
+          LOWER(${schema.products.description}) LIKE LOWER(${'%' + params.query + '%'}) OR 
+          LOWER(${schema.products.brand}) LIKE LOWER(${'%' + params.query + '%'}) OR
+          LOWER(${schema.products.category}) LIKE LOWER(${'%' + params.query + '%'})
+        )`;
+        conditions.push(searchCondition);
+      }
+
+      // Filtro de categorias
+      if (params.categories.length > 0) {
+        const categoryCondition = sql`${schema.products.category} IN (${sql.join(params.categories.map(c => sql`${c}`), sql`, `)})`;
+        conditions.push(categoryCondition);
+      }
+
+      // Filtro de marcas
+      if (params.brands.length > 0) {
+        const brandCondition = sql`${schema.products.brand} IN (${sql.join(params.brands.map(b => sql`${b}`), sql`, `)})`;
+        conditions.push(brandCondition);
+      }
+
+      // Filtro de preço mínimo
+      if (params.priceMin) {
+        conditions.push(sql`CAST(${schema.products.price} AS DECIMAL) >= ${params.priceMin}`);
+      }
+
+      // Filtro de preço máximo
+      if (params.priceMax) {
+        conditions.push(sql`CAST(${schema.products.price} AS DECIMAL) <= ${params.priceMax}`);
+      }
+
+      // Ordenação dinâmica
+      let orderBy;
+      switch (params.sortBy) {
+        case 'price':
+          orderBy = params.sortOrder === 'desc' ? 
+            sql`CAST(${schema.products.price} AS DECIMAL) DESC` : 
+            sql`CAST(${schema.products.price} AS DECIMAL) ASC`;
+          break;
+        case 'stock':
+          orderBy = params.sortOrder === 'desc' ? 
+            sql`${schema.products.stock} DESC` : 
+            sql`${schema.products.stock} ASC`;
+          break;
+        case 'created':
+          orderBy = params.sortOrder === 'desc' ? 
+            sql`${schema.products.createdAt} DESC` : 
+            sql`${schema.products.createdAt} ASC`;
+          break;
+        case 'name':
+        default:
+          orderBy = params.sortOrder === 'desc' ? 
+            sql`${schema.products.name} DESC` : 
+            sql`${schema.products.name} ASC`;
+          break;
+      }
+
+      const result = await db.select().from(schema.products)
+        .where(conditions.length > 0 ? and(...conditions) : undefined)
+        .orderBy(orderBy)
+        .limit(params.limit);
+
+      return result;
+    } catch (error) {
+      console.error('❌ Erro na busca avançada de produtos:', error);
+      throw error;
+    }
+  }
+
+  // ================================================================
+  // OPERAÇÕES DE CLIENTES PARA CREDIÁRIO
+  // ================================================================
+
+  async getAllCustomers(): Promise<Customer[]> {
+    try {
+      return await db.select().from(schema.customers)
+        .orderBy(schema.customers.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar clientes:', error);
+      throw error;
+    }
+  }
+
+  async getCustomer(id: string): Promise<Customer | undefined> {
+    try {
+      const result = await db.select().from(schema.customers)
+        .where(eq(schema.customers.id, id))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar cliente:', error);
+      throw error;
+    }
+  }
+
+  async getCustomerByEmail(email: string): Promise<Customer | undefined> {
+    try {
+      const result = await db.select().from(schema.customers)
+        .where(eq(schema.customers.email, email))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar cliente por email:', error);
+      throw error;
+    }
+  }
+
+  async searchCustomers(query: string): Promise<Customer[]> {
+    try {
+      const searchCondition = sql`(
+        LOWER(${schema.customers.name}) LIKE LOWER(${'%' + query + '%'}) OR 
+        LOWER(${schema.customers.email}) LIKE LOWER(${'%' + query + '%'}) OR
+        ${schema.customers.phone} LIKE ${'%' + query + '%'} OR
+        ${schema.customers.cpf} LIKE ${'%' + query + '%'}
+      )`;
+      
+      return await db.select().from(schema.customers)
+        .where(searchCondition)
+        .orderBy(schema.customers.name)
+        .limit(20);
+    } catch (error) {
+      console.error('❌ Erro na busca de clientes:', error);
+      throw error;
+    }
+  }
+
+  async createCustomer(customer: InsertCustomer): Promise<Customer> {
+    try {
+      const result = await db.insert(schema.customers).values({
+        ...customer,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar cliente:', error);
+      throw error;
+    }
+  }
+
+  async updateCustomer(id: string, customer: Partial<Customer>): Promise<Customer | undefined> {
+    try {
+      const result = await db.update(schema.customers)
+        .set({ ...customer, updatedAt: new Date() })
+        .where(eq(schema.customers.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar cliente:', error);
+      throw error;
+    }
+  }
+
+  async deleteCustomer(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.customers)
+        .where(eq(schema.customers.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar cliente:', error);
+      throw error;
+    }
+  }
+
+  // Customer Address operations
+  async getCustomerAddresses(customerId: string): Promise<CustomerAddress[]> {
+    try {
+      return await db.select().from(schema.customerAddresses)
+        .where(eq(schema.customerAddresses.customerId, customerId))
+        .orderBy(schema.customerAddresses.isDefault, schema.customerAddresses.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar endereços do cliente:', error);
+      throw error;
+    }
+  }
+
+  async createCustomerAddress(address: InsertCustomerAddress): Promise<CustomerAddress> {
+    try {
+      const result = await db.insert(schema.customerAddresses).values({
+        ...address,
+        createdAt: new Date(),
+      }).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar endereço:', error);
+      throw error;
+    }
+  }
+
+  async updateCustomerAddress(id: string, address: Partial<CustomerAddress>): Promise<CustomerAddress | undefined> {
+    try {
+      const result = await db.update(schema.customerAddresses)
+        .set(address)
+        .where(eq(schema.customerAddresses.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar endereço:', error);
+      throw error;
+    }
+  }
+
+  async deleteCustomerAddress(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.customerAddresses)
+        .where(eq(schema.customerAddresses.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar endereço:', error);
+      throw error;
+    }
+  }
+
+  // ================================================================
+  // OPERAÇÕES DE CONTAS DE CREDIÁRIO
+  // ================================================================
+
+  async getAllCreditAccounts(): Promise<CreditAccount[]> {
+    try {
+      return await db.select().from(schema.creditAccounts)
+        .orderBy(schema.creditAccounts.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar contas de crediário:', error);
+      throw error;
+    }
+  }
+
+  async getCreditAccount(id: string): Promise<CreditAccount | undefined> {
+    try {
+      const result = await db.select().from(schema.creditAccounts)
+        .where(eq(schema.creditAccounts.id, id))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar conta de crediário:', error);
+      throw error;
+    }
+  }
+
+  async getCreditAccountsByCustomer(customerId: string): Promise<CreditAccount[]> {
+    try {
+      return await db.select().from(schema.creditAccounts)
+        .where(eq(schema.creditAccounts.customerId, customerId))
+        .orderBy(schema.creditAccounts.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar contas do cliente:', error);
+      throw error;
+    }
+  }
+
+  async createCreditAccount(account: InsertCreditAccount): Promise<CreditAccount> {
+    try {
+      const result = await db.insert(schema.creditAccounts).values({
+        ...account,
+        createdAt: new Date(),
+      }).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar conta de crediário:', error);
+      throw error;
+    }
+  }
+
+  async updateCreditAccount(id: string, account: Partial<CreditAccount>): Promise<CreditAccount | undefined> {
+    try {
+      const result = await db.update(schema.creditAccounts)
+        .set(account)
+        .where(eq(schema.creditAccounts.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar conta de crediário:', error);
+      throw error;
+    }
+  }
+
+  async deleteCreditAccount(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.creditAccounts)
+        .where(eq(schema.creditAccounts.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar conta de crediário:', error);
+      throw error;
+    }
+  }
+
+  // Credit Payment operations
+  async getCreditPayments(creditAccountId: string): Promise<CreditPayment[]> {
+    try {
+      return await db.select().from(schema.creditPayments)
+        .where(eq(schema.creditPayments.creditAccountId, creditAccountId))
+        .orderBy(schema.creditPayments.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pagamentos:', error);
+      throw error;
+    }
+  }
+
+  async createCreditPayment(payment: InsertCreditPayment): Promise<CreditPayment> {
+    try {
+      const result = await db.insert(schema.creditPayments).values({
+        ...payment,
+        createdAt: new Date(),
+      }).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar pagamento:', error);
+      throw error;
+    }
+  }
+
+  async updateCreditPayment(id: string, payment: Partial<CreditPayment>): Promise<CreditPayment | undefined> {
+    try {
+      const result = await db.update(schema.creditPayments)
+        .set(payment)
+        .where(eq(schema.creditPayments.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar pagamento:', error);
+      throw error;
+    }
+  }
+
+  async deleteCreditPayment(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.creditPayments)
+        .where(eq(schema.creditPayments.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar pagamento:', error);
+      throw error;
+    }
   }
 }

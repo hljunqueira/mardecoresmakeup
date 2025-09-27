@@ -7,14 +7,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useQuery } from "@tanstack/react-query";
-import { usePageView } from "@/hooks/use-page-view";
 import type { Product } from "@shared/schema";
 import { Link } from "wouter";
  
 
 export default function Home() {
-  // Registrar visualização da página
-  usePageView();
   
   const { data: products, isLoading: productsLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],

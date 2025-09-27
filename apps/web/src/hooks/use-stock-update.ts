@@ -27,6 +27,30 @@ interface ReservationData {
   paymentDate: Date; // Timestamp fields use Date
 }
 
+interface CreditAccountData {
+  customerId: string;
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  paymentDate: Date;
+}
+
+interface CreateCustomerAndCreditData {
+  customerData: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  paymentDate: Date;
+}
+
 interface SaleReversalData {
   transactionId: string;
   productId: string;
@@ -223,6 +247,132 @@ export function useStockUpdate() {
     },
     onError: (error) => {
       console.error('❌ deleteReservationMutation - Erro:', error);
+    },
+  });
+
+  const addToCreditMutation = useMutation({
+    mutationFn: async (creditData: CreditAccountData) => {
+      console.log('💳 Adicionando produto ao crediário:', creditData);
+      
+      try {
+        // 1. Buscar conta ativa do cliente ou criar nova
+        const customerAccountsResponse = await apiRequest("GET", `/api/admin/customers/${creditData.customerId}/credit-accounts`);
+        const customerAccounts = await customerAccountsResponse.json();
+        
+        let activeAccount = customerAccounts.find((account: any) => account.status === 'active');
+        
+        if (!activeAccount) {
+          // Criar nova conta de crediário
+          const accountResponse = await apiRequest("POST", "/api/admin/credit-accounts", {
+            customerId: creditData.customerId,
+            totalAmount: creditData.totalAmount,
+            installments: 1,
+            paymentFrequency: 'monthly',
+            nextPaymentDate: creditData.paymentDate,
+            notes: `Conta criada automaticamente - ${creditData.productName}`,
+          });
+          
+          activeAccount = await accountResponse.json();
+          console.log('✅ Nova conta de crediário criada:', activeAccount.id);
+        } else {
+          // Atualizar conta existente
+          const newTotalAmount = parseFloat(activeAccount.totalAmount) + creditData.totalAmount;
+          const newRemainingAmount = parseFloat(activeAccount.remainingAmount) + creditData.totalAmount;
+          
+          await apiRequest("PUT", `/api/admin/credit-accounts/${activeAccount.id}`, {
+            totalAmount: newTotalAmount.toString(),
+            remainingAmount: newRemainingAmount.toString(),
+          });
+          
+          console.log('✅ Conta de crediário atualizada:', activeAccount.id);
+        }
+        
+        // 2. Criar reserva vinculada à conta de crediário
+        const reservationResponse = await apiRequest("POST", "/api/admin/reservations", {
+          productId: creditData.productId,
+          customerName: `Cliente ID: ${creditData.customerId}`,
+          quantity: creditData.quantity,
+          unitPrice: creditData.unitPrice.toString(),
+          paymentDate: creditData.paymentDate,
+          type: 'credit_account',
+          creditAccountId: activeAccount.id,
+          customerId: creditData.customerId,
+        });
+        
+        const reservation = await reservationResponse.json();
+        console.log('✅ Reserva para crediário criada:', reservation.id);
+        
+        return {
+          account: activeAccount,
+          reservation,
+          totalAmount: creditData.totalAmount
+        };
+      } catch (error) {
+        console.error('❌ Erro ao adicionar ao crediário:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
+    },
+  });
+
+  const createCustomerAndCreditMutation = useMutation({
+    mutationFn: async (data: CreateCustomerAndCreditData) => {
+      console.log('👥 Criando cliente e adicionando ao crediário:', data);
+      
+      try {
+        // 1. Criar novo cliente
+        const customerResponse = await apiRequest("POST", "/api/admin/customers", {
+          name: data.customerData.name,
+          email: data.customerData.email,
+          phone: data.customerData.phone || null,
+        });
+        
+        const newCustomer = await customerResponse.json();
+        console.log('✅ Cliente criado:', newCustomer);
+        
+        // 2. Criar conta de crediário para o novo cliente
+        const accountResponse = await apiRequest("POST", "/api/admin/credit-accounts", {
+          customerId: newCustomer.id,
+          totalAmount: data.totalAmount,
+          installments: 1,
+          paymentFrequency: 'monthly',
+          nextPaymentDate: data.paymentDate,
+          notes: `Conta criada automaticamente - ${data.productName}`,
+        });
+        
+        const creditAccount = await accountResponse.json();
+        console.log('✅ Conta de crediário criada:', creditAccount);
+        
+        // 3. Adicionar produto à conta
+        const productResponse = await apiRequest("POST", "/api/admin/credit-products", {
+          creditAccountId: creditAccount.id,
+          productId: data.productId,
+          productName: data.productName,
+          quantity: data.quantity,
+          unitPrice: data.unitPrice,
+          totalAmount: data.totalAmount,
+          addedAt: new Date().toISOString(),
+        });
+        
+        const creditProduct = await productResponse.json();
+        console.log('✅ Produto adicionado ao crediário:', creditProduct);
+        
+        return { customer: newCustomer, account: creditAccount, product: creditProduct };
+      } catch (error) {
+        console.error('❌ Erro ao criar cliente e crediário:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-products"] });
     },
   });
 
@@ -572,6 +722,101 @@ export function useStockUpdate() {
     setPendingRevert(null);
   };
 
+  const addToCredit = async (customerId: string, paymentDate: string) => {
+    if (!pendingUpdate) return;
+
+    const { product, newStock, quantitySold } = pendingUpdate;
+    const unitPrice = parseFloat(product.price);
+    const totalAmount = quantitySold * unitPrice;
+
+    try {
+      // 1. Atualizar estoque primeiro
+      await updateStockMutation.mutateAsync({
+        productId: product.id,
+        newStock,
+        previousStock: product.stock || 0,
+        reason: 'credit_sale'
+      });
+
+      // 2. Adicionar produto ao crediário do cliente
+      await addToCreditMutation.mutateAsync({
+        customerId,
+        productId: product.id,
+        productName: product.name,
+        quantity: quantitySold,
+        unitPrice,
+        totalAmount,
+        paymentDate: new Date(paymentDate)
+      });
+
+      toast({
+        title: "Produto adicionado ao crediário!",
+        description: `${quantitySold}x ${product.name} adicionado à conta do cliente. Valor: ${new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        }).format(totalAmount)}.`,
+        duration: 8000,
+      });
+
+      setIsConfirmDialogOpen(false);
+      setPendingUpdate(null);
+    } catch (error) {
+      console.error('Erro ao adicionar ao crediário:', error);
+      toast({
+        title: "Erro ao adicionar ao crediário",
+        description: "Ocorreu um erro ao adicionar o produto ao crediário. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const createCustomerAndCredit = async (customerData: { name: string; email: string; phone: string }, paymentDate: string) => {
+    if (!pendingUpdate) return;
+
+    const { product, newStock, quantitySold } = pendingUpdate;
+    const unitPrice = parseFloat(product.price);
+    const totalAmount = quantitySold * unitPrice;
+
+    try {
+      // 1. Atualizar estoque primeiro
+      await updateStockMutation.mutateAsync({
+        productId: product.id,
+        newStock,
+        previousStock: product.stock || 0,
+        reason: 'credit_sale'
+      });
+
+      // 2. Criar cliente e adicionar ao crediário
+      const result = await createCustomerAndCreditMutation.mutateAsync({
+        customerData,
+        productId: product.id,
+        productName: product.name,
+        quantity: quantitySold,
+        unitPrice,
+        totalAmount,
+        paymentDate: new Date(paymentDate)
+      });
+
+      toast({
+        title: "Cliente criado e produto adicionado ao crediário!",
+        description: `Cliente ${customerData.name} criado. ${quantitySold}x ${product.name} adicionado ao crediário. Valor: ${new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL',
+        }).format(totalAmount)}.`,
+        duration: 8000,
+      });
+
+      setIsConfirmDialogOpen(false);
+      setPendingUpdate(null);
+    } catch (error) {
+      console.error('Erro ao criar cliente e crediário:', error);
+      toast({
+        title: "Erro ao criar cliente e crediário",
+        description: "Ocorreu um erro ao criar o cliente e adicionar ao crediário. Tente novamente.",
+        variant: "destructive",
+      });
+    }
+  };
   return {
     // Dialogs de venda direta
     isConfirmDialogOpen,
@@ -603,6 +848,10 @@ export function useStockUpdate() {
     confirmSaleReversal,
     cancelSaleReversal,
     
+    // Nova funcionalidade de crediário
+    addToCredit,
+    createCustomerAndCredit,
+    
     // Estado de loading
     isLoading: updateStockMutation.isPending || 
                createSaleTransactionMutation.isPending || 
@@ -610,6 +859,8 @@ export function useStockUpdate() {
                confirmReservationSaleMutation.isPending ||
                returnReservationToStockMutation.isPending ||
                deleteReservationMutation.isPending ||
-               revertSaleMutation.isPending,
+               revertSaleMutation.isPending ||
+               addToCreditMutation.isPending ||
+               createCustomerAndCreditMutation.isPending,
   };
 }

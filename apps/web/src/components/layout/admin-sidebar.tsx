@@ -8,8 +8,10 @@ import {
   Menu,
   X,
   Home,
-  Calendar,
-  MessageCircle
+  CreditCard,
+  MessageCircle,
+  Users,
+  FileText
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -20,7 +22,7 @@ import LogoTransp from "@assets/Logotranparente.png";
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Produtos", href: "/admin/produtos", icon: Package },
-  { name: "Reservas", href: "/admin/reservas", icon: Calendar },
+  { name: "Crediário", href: "/admin/reservas", icon: CreditCard },
   { name: "Solicitações", href: "/admin/solicitacoes", icon: MessageCircle },
   { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign },
   { name: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },

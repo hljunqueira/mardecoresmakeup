@@ -13,6 +13,29 @@ export const CATEGORIES = [
   "Cuidados com a Pele",
   "Unhas",
   "Fragrâncias",
+  "Cabelo",
+];
+
+// Marcas brasileiras populares de cosméticos
+export const BRAZILIAN_BRANDS = [
+  "Vivai",
+  "Ruby Rose",
+  "Natura",
+  "Avon",
+  "Océane",
+  "Eudora",
+  "Quem disse, Berenice?",
+  "Vult",
+  "Payot",
+  "Sallve",
+  "Mahogany",
+  "Tracta",
+  "Contém 1g",
+  "Mariana Saad",
+  "Boca Rosa",
+  "Fenzza",
+  "Dailus",
+  "Outra", // Opção para outras marcas
 ];
 
 export const PRODUCT_TAGS = [

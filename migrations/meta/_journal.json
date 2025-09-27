@@ -8,6 +8,13 @@
       "when": 1758493499978,
       "tag": "0000_lucky_monster_badoon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1758980501946,
+      "tag": "0001_confused_zemo",
+      "breakpoints": true
     }
   ]
 }

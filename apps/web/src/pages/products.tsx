@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { usePageView } from "@/hooks/use-page-view";
 import Header from "@/components/layout/header";
 import Footer from "@/components/layout/footer";
 import ProductCard from "@/components/product-card";
@@ -17,12 +16,10 @@ import type { Product } from "@shared/schema";
 import { CATEGORIES } from "@/lib/constants";
 
 export default function Products() {
-  // Registrar visualização da página
-  usePageView();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<string>("name");
+  const [sortBy, setSortBy] = useState<string>("default");
 
   const { data: products, isLoading } = useQuery<Product[]>({
     queryKey: ["/api/products"],
@@ -33,10 +30,19 @@ export default function Products() {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          product.description?.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = selectedCategory === "all" || product.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    return matchesSearch && matchesCategory && product.active;
   });
 
   const sortedProducts = filteredProducts?.sort((a, b) => {
+    // Primeiro ordenar por tipo: produtos normais primeiro, depois "Tudo por 10"
+    const aTenDeal = (a as any).tenDeal || false;
+    const bTenDeal = (b as any).tenDeal || false;
+    
+    if (aTenDeal !== bTenDeal) {
+      return aTenDeal ? 1 : -1; // Produtos normais primeiro (tenDeal=false vem antes)
+    }
+    
+    // Dentro do mesmo tipo, aplicar ordenação secundária
     switch (sortBy) {
       case "price-low":
         return parseFloat(a.price) - parseFloat(b.price);
@@ -44,7 +50,18 @@ export default function Products() {
         return parseFloat(b.price) - parseFloat(a.price);
       case "rating":
         return parseFloat(b.rating || "0") - parseFloat(a.rating || "0");
+      case "featured":
+        const aFeatured = a.featured || false;
+        const bFeatured = b.featured || false;
+        if (aFeatured !== bFeatured) {
+          return bFeatured ? 1 : -1; // Produtos em destaque primeiro
+        }
+        return parseFloat(b.price) - parseFloat(a.price); // Por preço decrescente
       default:
+        // Para ordenação padrão, dentro dos produtos normais ordenar por preço decrescente
+        if (!aTenDeal && !bTenDeal) {
+          return parseFloat(b.price) - parseFloat(a.price);
+        }
         return a.name.localeCompare(b.name);
     }
   });
@@ -52,7 +69,7 @@ export default function Products() {
   const clearFilters = () => {
     setSearchQuery("");
     setSelectedCategory("all");
-    setSortBy("name");
+    setSortBy("default");
   };
 
   return (
@@ -109,6 +126,8 @@ export default function Products() {
                 <SelectValue placeholder="Ordenar por" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="default">Recomendados</SelectItem>
+                <SelectItem value="featured">Destaques Primeiro</SelectItem>
                 <SelectItem value="name">Nome A-Z</SelectItem>
                 <SelectItem value="price-low">Menor Preço</SelectItem>
                 <SelectItem value="price-high">Maior Preço</SelectItem>
@@ -189,11 +208,70 @@ export default function Products() {
                 </p>
               </div>
               
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                {sortedProducts?.map((product) => (
-                  <ProductCard key={product.id} product={product} />
-                ))}
-              </div>
+              {(() => {
+                // Separar produtos normais dos "Tudo por 10"
+                const normalProducts = sortedProducts?.filter(p => !(p as any).tenDeal) || [];
+                const tenDealProducts = sortedProducts?.filter(p => (p as any).tenDeal) || [];
+                
+                return (
+                  <>
+                    {/* Produtos Normais */}
+                    {normalProducts.length > 0 && (
+                      <>
+                        <div className="mb-8">
+                          <h2 className="text-2xl font-bold text-petrol-700 mb-6 flex items-center">
+                            ✨ Produtos Premium
+                            <Badge variant="outline" className="ml-3 text-xs">
+                              {normalProducts.length} itens
+                            </Badge>
+                          </h2>
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                            {normalProducts.map((product) => (
+                              <ProductCard key={product.id} product={product} />
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                    
+                    {/* Produtos Tudo por 10 */}
+                    {tenDealProducts.length > 0 && (
+                      <>
+                        {normalProducts.length > 0 && (
+                          <div className="my-12 border-t border-orange-200">
+                            <div className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-6 -mt-3">
+                              <div className="text-center">
+                                <h2 className="text-3xl font-bold text-orange-800 mb-2">
+                                  🔥 Tudo por R$ 10
+                                </h2>
+                                <p className="text-orange-600">
+                                  Aproveite nossa promoção especial com preços fixos!
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="mb-8">
+                          {normalProducts.length === 0 && (
+                            <h2 className="text-2xl font-bold text-orange-800 mb-6 flex items-center">
+                              🔥 Tudo por R$ 10
+                              <Badge variant="outline" className="ml-3 text-xs bg-orange-100 text-orange-700">
+                                {tenDealProducts.length} itens
+                              </Badge>
+                            </h2>
+                          )}
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                            {tenDealProducts.map((product) => (
+                              <ProductCard key={product.id} product={product} />
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
