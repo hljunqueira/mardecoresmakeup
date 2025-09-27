@@ -157,6 +157,77 @@
   }
 }
 
+/* Badges responsivos para mobile */
+@media (max-width: 480px) {
+  /* Extra small devices (iPhone SE, pequenos Androids) */
+  .product-card .badge {
+    font-size: 9px !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-weight: 500 !important;
+    line-height: 1.3 !important;
+    white-space: nowrap !important;
+  }
+  
+  /* Ajustar badge de promo para não quebrar */
+  .product-card [data-badge="promo"] {
+    font-size: 8px !important;
+    padding: 1px 4px !important;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 640px) {
+  /* Small devices (iPhone padrão, Androids médios) */
+  .product-card .badge {
+    font-size: 10px !important;
+    padding: 3px 8px !important;
+    border-radius: 6px !important;
+    line-height: 1.4 !important;
+  }
+}
+
+/* Breakpoint específico xs para dispositivos muito pequenos */
+@media (max-width: 375px) {
+  .product-card {
+    margin: 0.25rem;
+  }
+  
+  /* Badges ainda menores para telas muito pequenas */
+  .product-card .badge {
+    font-size: 8px !important;
+    padding: 1px 4px !important;
+    line-height: 1.2 !important;
+    border-radius: 3px !important;
+  }
+  
+  /* Badge "Promo R$ 10" muito compacto */
+  .product-card [data-badge="promo"] {
+    font-size: 7px !important;
+    padding: 1px 3px !important;
+  }
+}
+
+/* Melhorar legibilidade dos badges */
+.product-card .badge {
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Assegurar que badges não se sobreponham */
+.product-card .badge-container-right {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+}
+
+@media (max-width: 375px) {
+  .product-card .badge-container-right {
+    gap: 1px;
+  }
+}
+
 /* iOS specific optimizations */
 @supports (-webkit-touch-callout: none) {
   .product-card {

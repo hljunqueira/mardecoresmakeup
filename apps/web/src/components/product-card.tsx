@@ -77,21 +77,38 @@ export default function ProductCard({ product, className = "" }: ProductCardProp
               <span className="xl:hidden">WhatsApp</span>
             </Button>
           </div>
-          {product.featured && (
-            <Badge className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-gold-500 text-white hover:bg-gold-600 text-xs">
-              Destaque
-            </Badge>
-          )}
-          {parseFloat(String(product.price)) === 10 && (
-            <Badge className="absolute top-2 right-2 sm:top-3 sm:right-3 bg-gold-500 text-white hover:bg-gold-600 z-20 text-xs">
-              Promo R$ 10
-            </Badge>
-          )}
-          {product.originalPrice && parseFloat(product.originalPrice) > parseFloat(product.price) && (
-            <Badge variant="destructive" className="absolute top-2 right-2 sm:top-3 sm:right-3 z-20 text-xs">
-              Oferta
-            </Badge>
-          )}
+          {/* Badges responsivos */}
+          <div className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 md:top-3 md:left-3 z-20">
+            {product.featured && (
+              <Badge 
+                size="sm"
+                className="bg-gold-500 text-white hover:bg-gold-600 font-medium rounded-md sm:rounded-lg shadow-sm badge"
+              >
+                Destaque
+              </Badge>
+            )}
+          </div>
+          
+          <div className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 md:top-3 md:right-3 z-20 badge-container-right">
+            {parseFloat(String(product.price)) === 10 && (
+              <Badge 
+                size="sm"
+                data-badge="promo"
+                className="bg-gold-500 text-white hover:bg-gold-600 font-medium rounded-md sm:rounded-lg shadow-sm badge"
+              >
+                Promo R$ 10
+              </Badge>
+            )}
+            {product.originalPrice && parseFloat(product.originalPrice) > parseFloat(product.price) && (
+              <Badge 
+                variant="destructive" 
+                size="sm"
+                className="font-medium rounded-md sm:rounded-lg shadow-sm badge"
+              >
+                Oferta
+              </Badge>
+            )}
+          </div>
         </div>
         
         <CardContent className="product-card-content p-3 sm:p-4 space-y-2 sm:space-y-3">
