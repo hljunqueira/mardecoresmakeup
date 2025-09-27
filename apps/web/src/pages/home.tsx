@@ -13,15 +13,23 @@ import { Link } from "wouter";
 
 export default function Home() {
   
-  const { data: products, isLoading: productsLoading } = useQuery<Product[]>({
+  const { data: products, isLoading: productsLoading, error: productsError } = useQuery<Product[]>({
     queryKey: ["/api/products"],
+    staleTime: 5 * 60 * 1000, // 5 minutos
+    refetchOnMount: true,
   });
 
   // Coleções removidas da Home
 
-  // Produtos para a seção "Tudo por R$ 10" (front-only)
-  const { data: allProducts } = useQuery<Product[]>({
-    queryKey: ["/api/products"],
+  // Usar os mesmos produtos para ambas as seções
+  const allProducts = products;
+
+  // Debug log
+  console.log('🏠 Home - Produtos carregados:', {
+    products: products?.length || 0,
+    loading: productsLoading,
+    error: productsError?.message,
+    data: products
   });
 
   return (
@@ -88,6 +96,10 @@ export default function Home() {
               products.slice(0, 8).map((product, index) => (
                 <ProductCard key={product.id} product={product} className={`[animation-delay:${0.2 + index * 0.1}s]`} />
               ))
+            ) : productsError ? (
+              <div className="col-span-full text-center text-red-600">
+                Erro ao carregar produtos: {productsError.message}
+              </div>
             ) : (
               <div className="col-span-full text-center text-gray-600">Nenhum produto no catálogo no momento.</div>
             )}

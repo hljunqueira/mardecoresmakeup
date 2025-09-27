@@ -432,6 +432,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Public products routes
+  app.get("/api/products", async (req, res) => {
+    try {
+      // Buscar apenas produtos ativos para o público
+      const products = await storage.getActiveProducts();
+      console.log('✅ Produtos públicos encontrados:', products.length);
+      res.json(products);
+    } catch (error) {
+      console.error('❌ Erro ao buscar produtos públicos:', error);
+      res.status(500).json({ message: "Failed to fetch products" });
+    }
+  });
+
   app.get("/api/products/featured", async (req, res) => {
     try {
       const products = await storage.getFeaturedProducts();
