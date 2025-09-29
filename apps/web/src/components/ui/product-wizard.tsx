@@ -201,18 +201,13 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Selecione uma marca brasileira" />
+                            <SelectValue placeholder="Selecione uma marca" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {BRAZILIAN_BRANDS.map((brand) => (
                             <SelectItem key={brand} value={brand}>
-                              <div className="flex items-center space-x-2">
-                                <span>{brand}</span>
-                                {["Vivai", "Ruby Rose", "Natura", "Avon", "Océane"].includes(brand) && (
-                                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700">Popular</Badge>
-                                )}
-                              </div>
+                              {brand}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -229,7 +224,7 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                   name="customBrand"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Nome da Marca</FormLabel>
+                      <FormLabel>Nome da Marca Personalizada *</FormLabel>
                       <FormControl>
                         <Input {...field} placeholder="Digite o nome da marca" />
                       </FormControl>
@@ -238,6 +233,24 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                   )}
                 />
               )}
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Descrição</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        {...field} 
+                        placeholder="Descreva as características e benefícios do produto..." 
+                        className="min-h-[100px]"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </CardContent>
           </Card>
 
@@ -245,7 +258,7 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
-                <span className="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
+                <span className="bg-petrol-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">2</span>
                 <span>Preços e Estoque</span>
               </CardTitle>
             </CardHeader>
@@ -258,7 +271,16 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                     <FormItem>
                       <FormLabel>Preço de Venda *</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="29.90" type="number" step="0.01" />
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">R$</span>
+                          <Input 
+                            {...field} 
+                            type="number"
+                            step="0.01"
+                            placeholder="0,00"
+                            className="pl-8"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -272,9 +294,17 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                     <FormItem>
                       <FormLabel>Preço Original</FormLabel>
                       <FormControl>
-                        <Input {...field} placeholder="39.90" type="number" step="0.01" />
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">R$</span>
+                          <Input 
+                            {...field} 
+                            type="number"
+                            step="0.01"
+                            placeholder="0,00"
+                            className="pl-8"
+                          />
+                        </div>
                       </FormControl>
-                      <p className="text-xs text-muted-foreground">Para produtos em promoção</p>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -282,16 +312,13 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
               </div>
 
               {calculateMargin() && (
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                   <div className="flex items-center space-x-2">
                     <Calculator className="h-4 w-4 text-green-600" />
                     <span className="text-sm font-medium text-green-800">
-                      Desconto calculado: {calculateMargin()}%
+                      Margem de desconto: {calculateMargin()}%
                     </span>
                   </div>
-                  <p className="text-xs text-green-600 mt-1">
-                    Economia de {formatCurrency((parseFloat(form.watch("originalPrice") || "0") - parseFloat(form.watch("price") || "0")).toString())}
-                  </p>
                 </div>
               )}
 
@@ -301,13 +328,14 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                   name="stock"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Estoque Atual *</FormLabel>
+                      <FormLabel>Estoque Atual</FormLabel>
                       <FormControl>
                         <Input 
                           {...field} 
-                          type="number" 
-                          placeholder="0"
+                          type="number"
+                          min="0"
                           onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                          placeholder="0"
                         />
                       </FormControl>
                       <FormMessage />
@@ -324,12 +352,12 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                       <FormControl>
                         <Input 
                           {...field} 
-                          type="number" 
-                          placeholder="5"
+                          type="number"
+                          min="0"
                           onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
+                          placeholder="5"
                         />
                       </FormControl>
-                      <p className="text-xs text-muted-foreground">Alerta de estoque baixo</p>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -338,26 +366,26 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
             </CardContent>
           </Card>
 
-          {/* Seção 3: Descrição e Imagens */}
+          {/* Seção 3: Imagens */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
-                <span className="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
-                <span>Descrição e Imagens</span>
+                <span className="bg-petrol-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">3</span>
+                <span>Imagens do Produto</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <FormField
                 control={form.control}
-                name="description"
+                name="images"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Descrição do Produto</FormLabel>
+                    <FormLabel>Upload de Imagens</FormLabel>
                     <FormControl>
-                      <Textarea 
-                        {...field} 
-                        placeholder="Descreva as características, benefícios e modo de uso do produto..."
-                        rows={4}
+                      <ImageUpload
+                        value={field.value}
+                        onChange={field.onChange}
+                        multiple
                       />
                     </FormControl>
                     <FormMessage />
@@ -365,126 +393,71 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="images"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Imagens do Produto</FormLabel>
-                    <FormControl>
-                      <div className="space-y-4">
-                        <ImageUpload
-                          value={field.value}
-                          onChange={field.onChange}
-                          maxImages={5}
-                          productId={editingProduct?.id}
-                        />
-                        
-                        <div className="flex justify-center">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setIsImageSearchOpen(true)}
-                            className="w-full max-w-sm border-dashed border-2 border-blue-300 hover:border-blue-500 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          >
-                            <Search className="h-4 w-4 mr-2" />
-                            Buscar na Internet
-                          </Button>
-                        </div>
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-gray-500">ou</span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsImageSearchOpen(true)}
+                  className="flex items-center space-x-2"
+                >
+                  <Search className="h-4 w-4" />
+                  <span>Buscar Imagens Online</span>
+                </Button>
+              </div>
 
-              <FormField
-                control={form.control}
-                name="tags"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Tags/Palavras-chave</FormLabel>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {PRODUCT_TAGS.map((tag) => {
-                        const isSelected = field.value?.includes(tag);
-                        return (
-                          <Badge
-                            key={tag}
-                            variant={isSelected ? "default" : "outline"}
-                            className={`cursor-pointer transition-colors ${
-                              isSelected 
-                                ? "bg-petrol-500 hover:bg-petrol-600" 
-                                : "hover:bg-petrol-50 hover:border-petrol-300"
-                            }`}
-                            onClick={() => toggleTag(tag)}
-                          >
-                            {tag}
-                          </Badge>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Clique nas tags para adicionar ou remover
-                    </p>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {isImageSearchOpen && (
+                <ImageSearch
+                  onImageSelect={handleImageSelect}
+                  onClose={() => setIsImageSearchOpen(false)}
+                  searchQuery={form.watch("name")}
+                />
+              )}
             </CardContent>
           </Card>
 
-          {/* Seção 4: Configurações Finais */}
+          {/* Seção 4: Tags e Configurações */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
-                <span className="bg-purple-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
-                <span>Configurações Finais</span>
+                <span className="bg-petrol-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
+                <span>Tags e Configurações</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 gap-4">
+              <div>
+                <FormLabel>Tags do Produto</FormLabel>
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {PRODUCT_TAGS.map((tag) => (
+                    <div
+                      key={tag}
+                      onClick={() => toggleTag(tag)}
+                      className={`cursor-pointer px-3 py-2 rounded-lg text-sm border transition-colors ${
+                        form.watch("tags")?.includes(tag)
+                          ? "bg-petrol-500 text-white border-petrol-500"
+                          : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+                      }`}
+                    >
+                      {tag}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="featured"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">
-                          Produto em Destaque
-                        </FormLabel>
-                        <p className="text-sm text-muted-foreground">
-                          Aparecerá na página principal
-                        </p>
-                      </div>
+                    <FormItem className="flex items-center space-x-2">
                       <FormControl>
                         <Switch
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="tenDeal"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4 border-orange-200 bg-orange-50">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base text-orange-800">
-                          🔥 Tudo por R$ 10
-                        </FormLabel>
-                        <p className="text-sm text-orange-600">
-                          Produto fará parte da promoção "Tudo por 10"
-                        </p>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                        />
-                      </FormControl>
+                      <FormLabel className="text-sm">Produto em Destaque</FormLabel>
                     </FormItem>
                   )}
                 />
@@ -493,21 +466,30 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                   control={form.control}
                   name="active"
                   render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">
-                          Visível na Loja
-                        </FormLabel>
-                        <p className="text-sm text-muted-foreground">
-                          Produto disponível para venda
-                        </p>
-                      </div>
+                    <FormItem className="flex items-center space-x-2">
                       <FormControl>
                         <Switch
                           checked={field.value}
                           onCheckedChange={field.onChange}
                         />
                       </FormControl>
+                      <FormLabel className="text-sm">Produto Ativo</FormLabel>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="tenDeal"
+                  render={({ field }) => (
+                    <FormItem className="flex items-center space-x-2">
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormLabel className="text-sm">Tudo por R$ 10</FormLabel>
                     </FormItem>
                   )}
                 />
@@ -516,44 +498,27 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
           </Card>
 
           {/* Botões de Ação */}
-          <div className="flex justify-end space-x-4 pt-6">
+          <div className="flex justify-end space-x-4">
             <Button
               type="button"
               variant="outline"
               onClick={onCancel}
-              className="flex items-center"
+              disabled={isLoading}
             >
               <X className="h-4 w-4 mr-2" />
               Cancelar
             </Button>
-
             <Button
               type="submit"
               disabled={isLoading}
-              className="bg-petrol-500 hover:bg-petrol-600 flex items-center"
+              className="bg-petrol-500 hover:bg-petrol-600"
             >
-              {isLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Salvando...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  {editingProduct ? "Atualizar Produto" : "Criar Produto"}
-                </>
-              )}
+              <Save className="h-4 w-4 mr-2" />
+              {isLoading ? "Salvando..." : editingProduct ? "Atualizar Produto" : "Criar Produto"}
             </Button>
           </div>
         </form>
       </Form>
-
-      {/* Modal de busca de imagens */}
-      <ImageSearch
-        isOpen={isImageSearchOpen}
-        onClose={() => setIsImageSearchOpen(false)}
-        onImageSelect={handleImageSelect}
-      />
     </div>
   );
 }

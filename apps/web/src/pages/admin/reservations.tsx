@@ -101,6 +101,8 @@ export default function AdminReservationsAndCredit() {
   const [editingCreditAccount, setEditingCreditAccount] = useState<CreditAccount | null>(null);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState<{ account: CreditAccount; customer: Customer } | null>(null);
+  const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
   const { isAuthenticated } = useAdminAuth();
   const queryClient = useQueryClient();
   const { 
@@ -238,6 +240,21 @@ export default function AdminReservationsAndCredit() {
     },
     onError: (error) => {
       console.error('❌ onError - Erro na mutação:', error);
+    },
+  });
+
+  const deleteCreditAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await fetch(`/api/admin/credit-accounts/${accountId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Erro ao excluir conta de crediário');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
+      setIsDeleteAccountDialogOpen(false);
+      setAccountToDelete(null);
     },
   });
 
@@ -391,6 +408,17 @@ export default function AdminReservationsAndCredit() {
   const confirmDeleteCustomer = () => {
     if (customerToDelete) {
       deleteCustomerMutation.mutate(customerToDelete.id);
+    }
+  };
+
+  const openDeleteAccountDialog = (account: CreditAccount, customer: Customer) => {
+    setAccountToDelete({ account, customer });
+    setIsDeleteAccountDialogOpen(true);
+  };
+
+  const confirmDeleteAccount = () => {
+    if (accountToDelete) {
+      deleteCreditAccountMutation.mutate(accountToDelete.account.id);
     }
   };
 
@@ -772,6 +800,15 @@ export default function AdminReservationsAndCredit() {
                                   WhatsApp
                                 </Button>
                               )}
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="border-red-300 text-red-700 hover:bg-red-50"
+                                onClick={() => customer && openDeleteAccountDialog(account, customer)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Excluir Conta
+                              </Button>
                             </div>
 
                             {/* Observações */}
@@ -1131,6 +1168,60 @@ export default function AdminReservationsAndCredit() {
           customer={selectedAccountForPayment.customer}
         />
       )}
+      
+      {/* Delete Credit Account Dialog */}
+      <Dialog open={isDeleteAccountDialogOpen} onOpenChange={setIsDeleteAccountDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center text-red-700">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              Confirmar Exclusão
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-4 bg-red-50 border border-red-200 rounded-md">
+              <p className="text-sm text-red-800">
+                <strong>Atenção:</strong> Esta ação é irreversível!
+              </p>
+            </div>
+            {accountToDelete && (
+              <div className="space-y-2">
+                <p className="text-gray-700">
+                  Tem certeza de que deseja excluir a conta de crediário de:
+                </p>
+                <div className="p-3 bg-gray-50 rounded-md border">
+                  <p className="font-medium text-gray-900">{accountToDelete.customer.name}</p>
+                  <p className="text-sm text-gray-600">
+                    Valor: {formatCurrency(accountToDelete.account.totalAmount || 0)}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    {accountToDelete.account.installments} parcelas · {accountToDelete.account.paymentFrequency === 'weekly' ? 'Semanal' : 'Mensal'}
+                  </p>
+                </div>
+                <p className="text-sm text-red-600">
+                  Todos os dados relacionados a esta conta serão perdidos permanentemente.
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end space-x-3 pt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => setIsDeleteAccountDialogOpen(false)}
+                disabled={deleteCreditAccountMutation.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button 
+                onClick={confirmDeleteAccount}
+                disabled={deleteCreditAccountMutation.isPending}
+                className="bg-red-600 hover:bg-red-700 text-white"
+              >
+                {deleteCreditAccountMutation.isPending ? 'Excluindo...' : 'Excluir Conta'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       {/* Reservation Management Modal */}
       <ReservationManageModal

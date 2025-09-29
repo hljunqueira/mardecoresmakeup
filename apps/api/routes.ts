@@ -967,6 +967,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Deletar conta de crediário
+  app.delete("/api/admin/credit-accounts/:id", async (req, res) => {
+    try {
+      console.log('🗑️ Tentando deletar conta de crediário:', req.params.id);
+      
+      const deleted = await storage.deleteCreditAccount(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      console.log('✅ Conta de crediário deletada:', req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Erro ao deletar conta de crediário:', error);
+      res.status(500).json({ message: "Failed to delete credit account" });
+    }
+  });
+
   // ================================================================
   // APIs DE PAGAMENTOS DE CREDIÁRIO
   // ================================================================
