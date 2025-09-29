@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { ImageUpload } from "@/components/ui/image-upload";
 import { ImageSearch } from "@/components/ui/image-search-simple";
 import { Calculator, Search, Save, X } from "lucide-react";
-import { CATEGORIES, BRAZILIAN_BRANDS, PRODUCT_TAGS } from "@/lib/constants";
+import { CATEGORIES, BRAZILIAN_BRANDS } from "@/lib/constants";
 import { useToast } from "@/hooks/use-toast";
 
 // Schema de validação
@@ -115,14 +115,6 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
     }
     
     setIsImageSearchOpen(false);
-  };
-
-  const toggleTag = (tag: string) => {
-    const currentTags = form.getValues("tags") || [];
-    const newTags = currentTags.includes(tag)
-      ? currentTags.filter(t => t !== tag)
-      : [...currentTags, tag];
-    form.setValue("tags", newTags, { shouldValidate: true });
   };
 
   return (
@@ -385,7 +377,6 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                       <ImageUpload
                         value={field.value}
                         onChange={field.onChange}
-                        multiple
                       />
                     </FormControl>
                     <FormMessage />
@@ -407,44 +398,25 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                 </Button>
               </div>
 
-              {isImageSearchOpen && (
-                <ImageSearch
-                  onImageSelect={handleImageSelect}
-                  onClose={() => setIsImageSearchOpen(false)}
-                  searchQuery={form.watch("name")}
-                />
-              )}
+              {/* Busca de Imagens Online */}
+              <ImageSearch
+                isOpen={isImageSearchOpen}
+                onImageSelect={handleImageSelect}
+                onClose={() => setIsImageSearchOpen(false)}
+                searchQuery={form.watch("name")}
+              />
             </CardContent>
           </Card>
 
-          {/* Seção 4: Tags e Configurações */}
+          {/* Seção 4: Configurações */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <span className="bg-petrol-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm">4</span>
-                <span>Tags e Configurações</span>
+                <span>Configurações</span>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <FormLabel>Tags do Produto</FormLabel>
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  {PRODUCT_TAGS.map((tag) => (
-                    <div
-                      key={tag}
-                      onClick={() => toggleTag(tag)}
-                      className={`cursor-pointer px-3 py-2 rounded-lg text-sm border transition-colors ${
-                        form.watch("tags")?.includes(tag)
-                          ? "bg-petrol-500 text-white border-petrol-500"
-                          : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-                      }`}
-                    >
-                      {tag}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               <div className="grid grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
