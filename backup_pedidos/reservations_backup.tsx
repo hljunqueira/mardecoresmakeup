@@ -15,8 +15,6 @@ import { ReservationManageModal } from "@/components/ui/reservation-manage-modal
 import { StockReductionConfirm } from "@/components/ui/stock-reduction-confirm";
 import PaymentDialog from "@/components/ui/payment-dialog";
 import WhatsAppDialog from "@/components/ui/whatsapp-dialog";
-import CustomerModal from "@/components/ui/customer-modal";
-import { NewCreditAccountModal } from "@/components/ui/new-credit-account-modal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -51,9 +49,7 @@ import {
   Store,
   ShoppingCart,
   FileText,
-  Settings,
-  Package2,
-  Tag
+  Settings
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -70,7 +66,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Product, Reservation, Customer, CreditAccount, CreditAccountItem } from "@shared/schema";
+import type { Product, Reservation, Customer, CreditAccount } from "@shared/schema";
 
 // Schemas para validação de formulários
 const customerSchema = z.object({
@@ -97,25 +93,23 @@ export default function AdminReservationsAndCredit() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState("credit-accounts");
+  const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
+  const [isCreditAccountDialogOpen, setIsCreditAccountDialogOpen] = useState(false);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [isWhatsAppDialogOpen, setIsWhatsAppDialogOpen] = useState(false);
   const [selectedAccountForPayment, setSelectedAccountForPayment] = useState<{ account: CreditAccount; customer: Customer } | null>(null);
   const [selectedAccountForWhatsApp, setSelectedAccountForWhatsApp] = useState<{ account: CreditAccount; customer: Customer } | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editingCreditAccount, setEditingCreditAccount] = useState<CreditAccount | null>(null);
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<{ account: CreditAccount; customer: Customer } | null>(null);
   const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
   
-  // Estados para diálogos e formulários
-  const [isCustomerDialogOpen, setIsCustomerDialogOpen] = useState(false);
-  const [isCreditAccountDialogOpen, setIsCreditAccountDialogOpen] = useState(false);
+  // Estados para o seletor de produtos
+  const [selectedProducts, setSelectedProducts] = useState<Array<{product: Product, quantity: number}>>([]);
   const [isProductSelectorOpen, setIsProductSelectorOpen] = useState(false);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [editingCreditAccount, setEditingCreditAccount] = useState<CreditAccount | null>(null);
-  const [currentAccountForProducts, setCurrentAccountForProducts] = useState<{ account: CreditAccount; customer: Customer } | null>(null);
-  
-  // Novo modal unificado
-  const [isNewCreditAccountModalOpen, setIsNewCreditAccountModalOpen] = useState(false);
+  const [currentAccountForProducts, setCurrentAccountForProducts] = useState<{account: CreditAccount, customer: Customer} | null>(null);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -170,20 +164,6 @@ export default function AdminReservationsAndCredit() {
     enabled: isAuthenticated,
   });
 
-  // Hook para buscar itens de contas de crediário
-  const useCreditAccountItems = (accountId: string | null) => {
-    return useQuery<CreditAccountItem[]>({
-      queryKey: ["/api/admin/credit-accounts", accountId, "items"],
-      queryFn: async () => {
-        if (!accountId) return [];
-        const response = await fetch(`/api/admin/credit-accounts/${accountId}/items`);
-        if (!response.ok) throw new Error('Failed to fetch account items');
-        return response.json();
-      },
-      enabled: !!accountId && isAuthenticated,
-    });
-  };
-
   // Mutações para clientes
   const createCustomerMutation = useMutation({
     mutationFn: async (data: CustomerFormData) => {
@@ -198,7 +178,6 @@ export default function AdminReservationsAndCredit() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
       setIsCustomerDialogOpen(false);
-      setEditingCustomer(null);
       customerForm.reset();
     },
   });
@@ -279,8 +258,6 @@ export default function AdminReservationsAndCredit() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
-      // Invalidar também os itens da conta específica
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts", undefined, "items"] });
       
       const { productAdded, newTotalAmount } = data;
       
@@ -514,139 +491,15 @@ export default function AdminReservationsAndCredit() {
     }
   };
 
-  const confirmDeleteAccount = () => {
-    if (accountToDelete) {
-      deleteCreditAccountMutation.mutate(accountToDelete.account.id);
-    }
-  };
-
   const openDeleteAccountDialog = (account: CreditAccount, customer: Customer) => {
     setAccountToDelete({ account, customer });
     setIsDeleteAccountDialogOpen(true);
   };
 
-  // Componente para renderizar itens da conta de crediário
-  const AccountItemsDisplay = ({ accountId, account }: { accountId: string; account: CreditAccount }) => {
-    const { data: items, isLoading: itemsLoading } = useCreditAccountItems(accountId);
-    
-    if (itemsLoading) {
-      return (
-        <div className="bg-gray-50 rounded-lg p-4 mb-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-3">Produtos nesta conta:</h4>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-3 w-3/4" />
-          </div>
-        </div>
-      );
+  const confirmDeleteAccount = () => {
+    if (accountToDelete) {
+      deleteCreditAccountMutation.mutate(accountToDelete.account.id);
     }
-    
-    if (!items || items.length === 0) {
-      // Fallback para contas sem itens detalhados
-      const totalAmount = parseFloat(account.totalAmount?.toString() || "0");
-      const nextPaymentDate = account.nextPaymentDate ? new Date(account.nextPaymentDate) : null;
-      
-      return (
-        <div className="bg-gray-50 rounded-lg p-4 mb-4">
-          <h4 className="text-sm font-medium text-gray-700 mb-3">Produtos nesta conta:</h4>
-          <div className="space-y-2">
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600 flex items-center">
-                  <Package2 className="h-4 w-4 mr-1" />
-                  Kit de produtos ({formatCurrency(totalAmount)})
-                </span>
-                <span className="font-medium">{formatCurrency(totalAmount)}</span>
-              </div>
-              <div className="text-xs text-gray-500 ml-5">
-                {account.notes ? (
-                  account.notes
-                ) : (
-                  'Kit de produtos selecionados - Detalhes na observação da conta'
-                )}
-              </div>
-              <div className="flex justify-end">
-                <span className="text-sm text-gray-500">
-                  (Venc: {nextPaymentDate ? formatDate(nextPaymentDate) : 'A definir'})
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    
-    // Renderizar itens detalhados
-    return (
-      <div className="bg-gray-50 rounded-lg p-4 mb-4">
-        <h4 className="text-sm font-medium text-gray-700 mb-3">
-          Produtos nesta conta ({items.length} {items.length === 1 ? 'item' : 'itens'}):
-        </h4>
-        <div className="space-y-3">
-          {items.map((item, index) => {
-            const metadata = item.metadata as any;
-            const isFromOrder = metadata?.source === 'order';
-            const unitPrice = parseFloat(item.unitPrice?.toString() || "0");
-            const totalPrice = parseFloat(item.totalPrice?.toString() || "0");
-            
-            return (
-              <div key={item.id || index} className="border rounded-md p-3 bg-white">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2 mb-1">
-                      <Package2 className="h-4 w-4 text-gray-500" />
-                      <span className="font-medium text-gray-900">{item.productName}</span>
-                      
-                      {/* Badge da origem */}
-                      {isFromOrder ? (
-                        <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-xs">
-                          <ShoppingCart className="h-3 w-3 mr-1" />
-                          Pedido
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-green-100 text-green-800 border-green-200 text-xs">
-                          <Plus className="h-3 w-3 mr-1" />
-                          Manual
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span>Quantidade: {item.quantity}x</span>
-                        <span>Unitário: {formatCurrency(unitPrice)}</span>
-                      </div>
-                      <div className="flex items-center justify-between font-medium">
-                        <span>Total do item:</span>
-                        <span>{formatCurrency(totalPrice)}</span>
-                      </div>
-                    </div>
-                    
-                    {/* Informações adicionais baseadas na origem */}
-                    {isFromOrder && metadata?.orderNumber && (
-                      <div className="mt-2 text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">
-                        <strong>Pedido:</strong> #{metadata.orderNumber}
-                        {metadata?.addedAt && (
-                          <span className="ml-2">
-                            • {formatDateTime(metadata.addedAt)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    
-                    {!isFromOrder && metadata?.addedAt && (
-                      <div className="mt-2 text-xs text-green-600 bg-green-50 rounded px-2 py-1">
-                        <strong>Adicionado manualmente:</strong> {formatDateTime(metadata.addedAt)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
   };
 
   // Estatísticas
@@ -890,7 +743,7 @@ export default function AdminReservationsAndCredit() {
                       Conta Simples
                     </Button>
                     <Button 
-                      onClick={() => setIsNewCreditAccountModalOpen(true)} 
+                      onClick={() => setIsProductSelectorOpen(true)} 
                       className="bg-petrol-600 hover:bg-petrol-700"
                     >
                       <ShoppingCart className="h-4 w-4 mr-2" />
@@ -992,8 +845,52 @@ export default function AdminReservationsAndCredit() {
                               </div>
                             </div>
 
-                            {/* Produtos da Conta - Layout atualizado com itens específicos */}
-                            <AccountItemsDisplay accountId={account.id} account={account} />
+                            {/* Produtos da Conta - Layout conforme o plano */}
+                            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                              <h4 className="text-sm font-medium text-gray-700 mb-3">Produtos nesta conta:</h4>
+                              <div className="space-y-2">
+                                {/* Dados condicionais baseados no número de parcelas */}
+                                {account.installments === 1 ? (
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="text-gray-600">- Kit de produtos ({formatCurrency(totalAmount)})</span>
+                                      <span className="font-medium">{formatCurrency(totalAmount)}</span>
+                                    </div>
+                                    <div className="text-xs text-gray-500 ml-2">
+                                      {account.notes ? (
+                                        // Se há observações, mostrar elas
+                                        account.notes
+                                      ) : (
+                                        // Se não há observações, mostrar mensagem genérica
+                                        'Kit de produtos selecionados - Detalhes na observação da conta'
+                                      )}
+                                    </div>
+                                    <div className="flex justify-end">
+                                      <span className="text-sm text-gray-500">(Venc: {nextPaymentDate ? formatDate(nextPaymentDate) : 'A definir'})</span>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  // Exemplo de múltiplas parcelas - será substituído por dados reais na FASE 3
+                                  Array.from({ length: Math.min(account.installments || 1, 3) }).map((_, index) => {
+                                    const installmentValue = totalAmount / (account.installments || 1);
+                                    const dueDate = new Date();
+                                    dueDate.setMonth(dueDate.getMonth() + index);
+                                    
+                                    return (
+                                      <div key={index} className="space-y-1">
+                                        <div className="flex items-center justify-between text-sm">
+                                          <span className="text-gray-600">- Parcela {index + 1}</span>
+                                          <span className="font-medium">{formatCurrency(installmentValue)}</span>
+                                        </div>
+                                        <div className="flex justify-end">
+                                          <span className="text-sm text-gray-500">(Venc: {formatDate(dueDate)})</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            </div>
 
                             {/* Informações da Conta */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4 text-sm">
@@ -1101,6 +998,67 @@ export default function AdminReservationsAndCredit() {
                         Novo Cliente
                       </Button>
                     </DialogTrigger>
+                    <DialogContent className="sm:max-w-md" aria-describedby="customer-form-description">
+                      <DialogHeader>
+                        <DialogTitle>
+                          {editingCustomer ? 'Editar Cliente' : 'Novo Cliente'}
+                        </DialogTitle>
+                        <DialogDescription id="customer-form-description">
+                          {editingCustomer ? 'Altere as informações do cliente' : 'Cadastre um novo cliente no sistema'}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <Form {...customerForm}>
+                        <form onSubmit={customerForm.handleSubmit(editingCustomer ? handleUpdateCustomer : handleCreateCustomer)} className="space-y-4">
+                          <FormField
+                            control={customerForm.control}
+                            name="name"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Nome *</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="Nome completo" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={customerForm.control}
+                            name="phone"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Telefone</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="(11) 99999-9999" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={customerForm.control}
+                            name="cpf"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>CPF</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="000.000.000-00" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <div className="flex justify-end space-x-2">
+                            <Button type="button" variant="outline" onClick={() => setIsCustomerDialogOpen(false)}>
+                              Cancelar
+                            </Button>
+                            <Button type="submit" disabled={createCustomerMutation.isPending || updateCustomerMutation.isPending}>
+                              {editingCustomer ? 'Atualizar' : 'Criar'}
+                            </Button>
+                          </div>
+                        </form>
+                      </Form>
+                    </DialogContent>
                   </Dialog>
                 </CardHeader>
                 <CardContent>
@@ -1554,18 +1512,6 @@ export default function AdminReservationsAndCredit() {
           </div>
         </DialogContent>
       </Dialog>
-      
-      {/* Modal de Cliente */}
-      <CustomerModal
-        isOpen={isCustomerDialogOpen}
-        onClose={() => setIsCustomerDialogOpen(false)}
-      />
-      
-      {/* Novo Modal Unificado de Crediário */}
-      <NewCreditAccountModal
-        isOpen={isNewCreditAccountModalOpen}
-        onClose={() => setIsNewCreditAccountModalOpen(false)}
-      />
     </div>
   );
 }

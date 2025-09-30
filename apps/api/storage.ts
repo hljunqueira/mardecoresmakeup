@@ -25,6 +25,12 @@ import type {
   InsertCreditAccount,
   CreditPayment,
   InsertCreditPayment,
+  CreditAccountItem,
+  InsertCreditAccountItem,
+  Order,
+  InsertOrder,
+  OrderItem,
+  InsertOrderItem,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -152,6 +158,45 @@ export interface IStorage {
     customerId?: string;
     accountId?: string;
   }): Promise<CreditPayment[]>;
+  
+  // Credit Account Item operations
+  getCreditAccountItems(creditAccountId: string): Promise<CreditAccountItem[]>;
+  createCreditAccountItem(item: InsertCreditAccountItem): Promise<CreditAccountItem>;
+  updateCreditAccountItem(id: string, item: Partial<CreditAccountItem>): Promise<CreditAccountItem | undefined>;
+  deleteCreditAccountItem(id: string): Promise<boolean>;
+  
+  // Order operations - NOVO SISTEMA DE PEDIDOS (TODO: Implementar no SupabaseStorage)
+  getAllOrders(): Promise<Order[]>;
+  getOrder(id: string): Promise<Order | undefined>;
+  getOrdersByCustomer(customerId: string): Promise<Order[]>;
+  createOrder(order: InsertOrder): Promise<Order>;
+  updateOrder(id: string, order: Partial<Order>): Promise<Order | undefined>;
+  deleteOrder(id: string): Promise<boolean>;
+  getOrdersReport(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    customerId?: string;
+    status?: string;
+    paymentType?: string;
+  }): Promise<Order[]>;
+  
+  // Order Item operations (TODO: Implementar no SupabaseStorage)
+  getOrderItems(orderId: string): Promise<OrderItem[]>;
+  createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
+  updateOrderItem(id: string, item: Partial<OrderItem>): Promise<OrderItem | undefined>;
+  deleteOrderItem(id: string): Promise<boolean>;
+  
+  // Order utilities (TODO: Implementar no SupabaseStorage)
+  generateOrderNumber(): Promise<string>;
+  calculateOrderTotal(orderId: string): Promise<number>;
+  
+  // Product Review operations
+  getAllProductReviews(): Promise<any[]>;
+  getProductReviews(productId: string): Promise<any[]>;
+  getProductReview(id: string): Promise<any>;
+  createProductReview(review: any): Promise<any>;
+  updateProductReview(id: string, review: any): Promise<any>;
+  deleteProductReview(id: string): Promise<boolean>;
 }
 
 // Configuração direta do Supabase Storage
@@ -162,7 +207,8 @@ async function initializeStorage(): Promise<IStorage> {
     const { SupabaseStorage } = await import('./supabase-storage.js');
     const supabaseStorage = new SupabaseStorage();
     console.log('✅ Usando Supabase Storage');
-    return supabaseStorage;
+    // TODO: Implementar métodos de pedidos no SupabaseStorage
+    return supabaseStorage as unknown as IStorage;
   } catch (error) {
     console.error('❌ Falha ao carregar Supabase Storage:', error);
     throw new Error('Não foi possível conectar com o Supabase. Verifique as configurações.');

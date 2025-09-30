@@ -11,7 +11,9 @@ import {
   CreditCard,
   MessageCircle,
   Users,
-  FileText
+  FileText,
+  ShoppingCart,
+  Star
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,10 +24,12 @@ import LogoTransp from "@assets/Logotranparente.png";
 const navigation = [
   { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { name: "Produtos", href: "/admin/produtos", icon: Package },
+  { name: "Pedidos", href: "/admin/pedidos", icon: ShoppingCart },
   { name: "Crediário", href: "/admin/reservas", icon: CreditCard },
-  { name: "Solicitações", href: "/admin/solicitacoes", icon: MessageCircle },
   { name: "Financeiro", href: "/admin/financeiro", icon: DollarSign },
   { name: "Relatórios", href: "/admin/relatorios", icon: BarChart3 },
+  { name: "Avaliações", href: "/admin/avaliacoes", icon: Star },
+  { name: "Solicitações", href: "/admin/solicitacoes", icon: MessageCircle },
 ];
 
 export default function AdminSidebar() {

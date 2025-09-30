@@ -26,6 +26,10 @@ import { Plus, Edit, Trash2, Package, Star, AlertTriangle, Eye, EyeOff, Search, 
 import type { Product, InsertProduct } from "@shared/schema";
 import { CATEGORIES, BRAZILIAN_BRANDS, PRODUCT_TAGS } from "@/lib/constants";
 import { ProductWizard } from "@/components/ui/product-wizard";
+import { StockReductionConfirm } from "@/components/ui/stock-reduction-confirm";
+import { ReservationModal } from "@/components/ui/reservation-modal";
+import { ReservationManageModal } from "@/components/ui/reservation-manage-modal";
+import { SaleReversalConfirm } from "@/components/ui/sale-reversal-confirm";
 
 const productSchema = z.object({
   name: z.string().min(1, "Nome é obrigatório"),
@@ -55,6 +59,43 @@ export default function AdminProducts() {
   const [isImageSearchOpen, setIsImageSearchOpen] = useState(false);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
+  const {    
+    // Dialogs de venda direta
+    isConfirmDialogOpen,
+    pendingUpdate,
+    confirmStockReduction,
+    cancelStockReduction,
+    handleStockReduction,
+    
+    // Dialogs de reserva
+    isReservationDialogOpen,
+    pendingReservation,
+    openReservationDialog,
+    confirmReservation,
+    cancelReservation,
+    
+    // Dialogs de gerenciamento de reserva
+    isReservationManageDialogOpen,
+    currentReservation,
+    openReservationManageDialog,
+    confirmReservationSale,
+    returnReservationToStock,
+    deleteReservation,
+    cancelReservationManage,
+    
+    // Dialogs de reversão
+    isRevertDialogOpen,
+    pendingRevert,
+    handleRevertSale,
+    confirmSaleReversal,
+    cancelSaleReversal,
+    
+    // Nova funcionalidade de crediário
+    addToCredit,
+    createCustomerAndCredit,
+    
+    isLoading: isStockUpdateLoading,
+  } = useStockUpdate();
 
   // Mutation para atualizar estoque diretamente (incremento)
   const updateStockMutation = useMutation({
@@ -75,33 +116,6 @@ export default function AdminProducts() {
     onError: (error) => {
       toast({
         title: "Erro ao atualizar estoque",
-        description: "Tente novamente em instantes.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Mutation para alternar visibilidade do produto (toggle active)
-  const toggleVisibilityMutation = useMutation({
-    mutationFn: async ({ productId, newActiveStatus }: { productId: string; newActiveStatus: boolean }) => {
-      const response = await apiRequest("PUT", `/api/admin/products/${productId}`, {
-        active: newActiveStatus
-      });
-      return response.json();
-    },
-    onSuccess: (updatedProduct) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
-      toast({
-        title: updatedProduct.active ? "Produto visível!" : "Produto oculto!",
-        description: updatedProduct.active 
-          ? "O produto agora está visível na loja." 
-          : "O produto foi ocultado da loja.",
-      });
-    },
-    onError: (error) => {
-      toast({
-        title: "Erro ao alterar visibilidade",
         description: "Tente novamente em instantes.",
         variant: "destructive",
       });
@@ -345,21 +359,6 @@ export default function AdminProducts() {
     return null;
   }
 
-  // Remove all StockReductionConfirm modals and replace stock reduction logic
-  const handleStockDecrease = (product: Product) => {
-    const currentStock = product.stock || 0;
-    if (currentStock > 0) {
-      updateStockMutation.mutate({ 
-        productId: product.id, 
-        newStock: currentStock - 1 
-      });
-    }
-  };
-
-  const handleToggleVisibility = (product: Product) => {
-    toggleVisibilityMutation.mutate({ productId: product.id, newActiveStatus: !product.active });
-  };
-
   return (
     <div className="flex h-screen bg-background">
       <AdminSidebar />
@@ -474,30 +473,14 @@ export default function AdminProducts() {
                         )}
                         
                         {isInactive && (
-                          <Badge 
-                            variant="outline" 
-                            className="bg-gray-100 text-gray-600 cursor-pointer hover:bg-gray-200 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleVisibility(product);
-                            }}
-                            title="Clique para tornar visível"
-                          >
+                          <Badge variant="outline" className="bg-gray-100 text-gray-600">
                             <EyeOff className="h-3 w-3 mr-1" />
                             Oculto
                           </Badge>
                         )}
                         
                         {product.active && (
-                          <Badge 
-                            variant="outline" 
-                            className="bg-green-100 text-green-700 cursor-pointer hover:bg-green-200 transition-colors"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleVisibility(product);
-                            }}
-                            title="Clique para ocultar"
-                          >
+                          <Badge variant="outline" className="bg-green-100 text-green-700">
                             <Eye className="h-3 w-3 mr-1" />
                             Visível
                           </Badge>
@@ -543,23 +526,11 @@ export default function AdminProducts() {
                           )}
                         </div>
                         
-                        {product.rating && parseFloat(product.rating) > 0 ? (
-                          <div className="flex items-center space-x-1">
+                        {product.rating && (
+                          <div className="flex items-center">
                             <Star className="h-4 w-4 text-gold-400 fill-current" />
-                            <span className="text-sm font-medium text-gold-600">
-                              {parseFloat(product.rating).toFixed(1)}
-                            </span>
-                            {product.reviewCount && product.reviewCount > 0 && (
-                              <span className="text-xs text-muted-foreground">
-                                ({product.reviewCount} aval.)
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex items-center space-x-1">
-                            <Star className="h-4 w-4 text-gray-300" />
-                            <span className="text-xs text-muted-foreground">
-                              Sem avaliações
+                            <span className="text-sm text-muted-foreground ml-1">
+                              {product.rating}
                             </span>
                           </div>
                         )}
@@ -589,7 +560,10 @@ export default function AdminProducts() {
                             variant="outline"
                             className="h-8 w-8 p-0 rounded-full bg-white border-petrol-300 text-petrol-700 hover:bg-white hover:border-petrol-500 hover:text-petrol-800 transition-colors dark:bg-white dark:border-petrol-400 dark:text-petrol-700 dark:hover:bg-white dark:hover:border-petrol-600"
                             onClick={() => {
-                              handleStockDecrease(product);
+                              const currentStock = product.stock || 0;
+                              if (currentStock > 0) {
+                                handleStockReduction(product, currentStock - 1);
+                              }
                             }}
                             disabled={(product.stock || 0) <= 0 || updateStockMutation.isPending}
                           >
@@ -655,6 +629,55 @@ export default function AdminProducts() {
         description="Todas as imagens e dados relacionados também serão removidos permanentemente."
         isLoading={deleteMutation.isPending}
       />
+      
+      {/* Stock Reduction Confirmation Modal */}
+      <StockReductionConfirm
+        isOpen={isConfirmDialogOpen}
+        onConfirm={confirmStockReduction}
+        onAddToCredit={addToCredit}
+        onCreateCustomerAndCredit={createCustomerAndCredit}
+        onCancel={cancelStockReduction}
+        isLoading={isStockUpdateLoading}
+        product={pendingUpdate?.product || null}
+        quantitySold={pendingUpdate?.quantitySold || 0}
+        newStock={pendingUpdate?.newStock || 0}
+      />
+
+      {/* Reservation Modal */}
+      <ReservationModal
+        isOpen={isReservationDialogOpen}
+        onReserve={confirmReservation}
+        onCancel={cancelReservation}
+        isLoading={isStockUpdateLoading}
+        product={pendingReservation?.product || null}
+        quantityReserved={pendingReservation?.quantity || 0}
+        newStock={pendingReservation?.newStock || 0}
+        maxQuantity={pendingReservation?.product?.stock || 0}
+      />
+
+      {/* Reservation Management Modal */}
+      <ReservationManageModal
+        isOpen={isReservationManageDialogOpen}
+        onConfirmSale={confirmReservationSale}
+        onReturnToStock={returnReservationToStock}
+        onDeleteReservation={deleteReservation}
+        onCancel={cancelReservationManage}
+        isLoading={isStockUpdateLoading}
+        product={currentReservation?.product || null}
+        reservation={currentReservation?.reservation || null}
+      />
+      
+      {/* Sale Reversal Confirmation Modal */}
+      <SaleReversalConfirm
+        isOpen={isRevertDialogOpen}
+        onConfirm={confirmSaleReversal}
+        onCancel={cancelSaleReversal}
+        isLoading={isStockUpdateLoading}
+        product={pendingRevert?.product || null}
+        quantity={pendingRevert?.quantity || 0}
+        transaction={pendingRevert?.transaction || null}
+      />
+
     </div>
   );
 }

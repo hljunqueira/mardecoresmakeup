@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import ReviewModal from "@/components/review-modal";
 import type { Product } from "@shared/schema";
 import { openWhatsApp } from "@/lib/whatsapp";
 import { Link } from "wouter";
@@ -15,6 +16,7 @@ interface ProductCardProps {
 
 export default function ProductCard({ product, className = "" }: ProductCardProps) {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   
   const handleWhatsAppClick = () => {
     const isTenDeal = parseFloat(String(product.price)) === 10;
@@ -133,19 +135,39 @@ export default function ProductCard({ product, className = "" }: ProductCardProp
               <div className="flex items-center">
                 <Star className="h-3 w-3 sm:h-4 sm:w-4 text-gold-400 fill-current" />
                 <span className="text-gray-600 text-xs sm:text-sm ml-1">
-                  {product.rating}
+                  {parseFloat(product.rating).toFixed(1)}
                 </span>
+                {product.reviewCount && product.reviewCount > 0 && (
+                  <span className="text-gray-500 text-xs ml-1">
+                    ({product.reviewCount})
+                  </span>
+                )}
               </div>
             )}
           </div>
 
-          <Button 
-            onClick={handleWhatsAppClick}
-            className="product-card-button w-full bg-green-500 hover:bg-green-600 text-white rounded-xl transition-all duration-200 font-medium py-2 sm:py-2.5 text-xs sm:text-sm touch-manipulation"
-          >
-            <i className="fab fa-whatsapp mr-1 sm:mr-2"></i>
-            {parseFloat(String(product.price)) === 10 ? "Quero por R$ 10" : "Fale Conosco"}
-          </Button>
+          <div className="space-y-2">
+            <Button 
+              onClick={handleWhatsAppClick}
+              className="product-card-button w-full bg-green-500 hover:bg-green-600 text-white rounded-xl transition-all duration-200 font-medium py-2 sm:py-2.5 text-xs sm:text-sm touch-manipulation"
+            >
+              <i className="fab fa-whatsapp mr-1 sm:mr-2"></i>
+              {parseFloat(String(product.price)) === 10 ? "Quero por R$ 10" : "Fale Conosco"}
+            </Button>
+            
+            <Button 
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsReviewModalOpen(true);
+              }}
+              variant="outline"
+              className="w-full rounded-xl transition-all duration-200 font-medium py-2 sm:py-2.5 text-xs sm:text-sm border-gold-300 text-gold-600 hover:bg-gold-50 touch-manipulation"
+            >
+              <Star className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              Avaliar Produto
+            </Button>
+          </div>
         </CardContent>
       </Card>
       
@@ -179,6 +201,13 @@ export default function ProductCard({ product, className = "" }: ProductCardProp
           </div>
         </DialogContent>
       </Dialog>
+      
+      {/* Review Modal */}
+      <ReviewModal 
+        isOpen={isReviewModalOpen}
+        onClose={() => setIsReviewModalOpen(false)}
+        product={product}
+      />
     </>
   );
 }

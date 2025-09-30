@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema, insertProductRequestSchema, type Product } from "@shared/schema";
+import { insertProductSchema, insertCollectionSchema, insertCouponSchema, insertFinancialTransactionSchema, insertSupplierSchema, insertReservationSchema, insertProductRequestSchema, insertProductReviewSchema, type Product } from "@shared/schema";
 import { z } from "zod";
 import * as crypto from "crypto";
 import { upload, imageUploadService } from "./upload-service";
@@ -727,6 +727,104 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API para verificar se cliente já tem conta ativa
+  app.get("/api/admin/customers/:customerId/active-account", async (req, res) => {
+    try {
+      const { customerId } = req.params;
+      const accounts = await storage.getCreditAccountsByCustomer(customerId);
+      const activeAccount = accounts.find(account => account.status === 'active');
+      
+      res.json({
+        hasActiveAccount: !!activeAccount,
+        activeAccount: activeAccount || null
+      });
+    } catch (error) {
+      console.error('❌ Erro ao verificar conta ativa:', error);
+      res.status(500).json({ message: "Failed to check active account" });
+    }
+  });
+
+  // API para buscar itens específicos de uma conta de crediário
+  app.get("/api/admin/credit-accounts/:accountId/items", async (req, res) => {
+    try {
+      const { accountId } = req.params;
+      
+      // Verificar se a conta existe
+      const account = await storage.getCreditAccount(accountId);
+      if (!account) {
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      // Buscar os itens da conta
+      const items = await storage.getCreditAccountItems(accountId);
+      console.log('✅ Itens da conta encontrados:', items.length);
+      
+      res.json(items);
+    } catch (error) {
+      console.error('❌ Erro ao buscar itens da conta:', error);
+      res.status(500).json({ message: "Failed to fetch account items" });
+    }
+  });
+
+  // API para adicionar produto à conta existente
+  app.post("/api/admin/credit-accounts/:accountId/add-product", async (req, res) => {
+    try {
+      const { accountId } = req.params;
+      const { productId, productName, quantity, unitPrice } = req.body;
+      
+      // Calcular preço total
+      const totalPrice = quantity * unitPrice;
+      
+      // Buscar a conta atual
+      const account = await storage.getCreditAccount(accountId);
+      if (!account) {
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      // Criar item na conta de crediário
+      await storage.createCreditAccountItem({
+        creditAccountId: accountId,
+        productId,
+        productName,
+        quantity,
+        unitPrice: unitPrice.toString(),
+        totalPrice: totalPrice.toString(),
+        metadata: {
+          source: 'manual',
+          addedAt: new Date().toISOString(),
+          addedBy: 'admin' // TODO: Identificar usuário logado
+        }
+      });
+      
+      // Atualizar o valor total da conta
+      const currentTotal = account.totalAmount ? parseFloat(account.totalAmount.toString()) : 0;
+      const currentPaid = account.paidAmount ? parseFloat(account.paidAmount.toString()) : 0;
+      const newTotalAmount = currentTotal + totalPrice;
+      const newRemainingAmount = newTotalAmount - currentPaid;
+      
+      await storage.updateCreditAccount(accountId, {
+        totalAmount: newTotalAmount.toString(),
+        remainingAmount: newRemainingAmount.toString()
+      });
+      
+      res.json({
+        success: true,
+        message: "Produto adicionado à conta com sucesso",
+        newTotalAmount,
+        productAdded: {
+          productId,
+          productName,
+          quantity,
+          unitPrice,
+          totalPrice
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao adicionar produto:', error);
+      res.status(500).json({ message: "Failed to add product to account" });
+    }
+  });
+
   // Dashboard consolidado - Métricas integradas de crediário e reservas
   app.get("/api/admin/dashboard/metrics", async (req, res) => {
     try {
@@ -970,18 +1068,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Deletar conta de crediário
   app.delete("/api/admin/credit-accounts/:id", async (req, res) => {
     try {
-      console.log('🗑️ Tentando deletar conta de crediário:', req.params.id);
+      console.log('🗑️ Iniciando deleção da conta de crediário:', req.params.id);
       
-      const deleted = await storage.deleteCreditAccount(req.params.id);
-      if (!deleted) {
+      // Verificar se a conta existe
+      const account = await storage.getCreditAccount(req.params.id);
+      if (!account) {
+        console.log('❌ Conta não encontrada:', req.params.id);
         return res.status(404).json({ message: "Credit account not found" });
       }
       
-      console.log('✅ Conta de crediário deletada:', req.params.id);
-      res.json({ success: true });
+      console.log(`📊 Conta encontrada: ${account.accountNumber}`);
+      
+      // 1. Primeiro, buscar e deletar todos os pagamentos relacionados
+      console.log('🧹 Buscando pagamentos para deleção...');
+      const payments = await storage.getCreditPayments(req.params.id);
+      console.log(`💰 Pagamentos encontrados: ${payments.length}`);
+      
+      let deletedPayments = 0;
+      for (const payment of payments) {
+        try {
+          const paymentDeleted = await storage.deleteCreditPayment(payment.id);
+          if (paymentDeleted) {
+            console.log(`  ✅ Pagamento deletado: ${payment.id} - R$ ${payment.amount}`);
+            deletedPayments++;
+          } else {
+            console.log(`  ⚠️ Falha ao deletar pagamento: ${payment.id}`);
+          }
+        } catch (paymentError) {
+          console.error(`  ❌ Erro ao deletar pagamento ${payment.id}:`, paymentError);
+          throw paymentError; // Parar se não conseguir deletar um pagamento
+        }
+      }
+      
+      console.log(`✅ Total de pagamentos deletados: ${deletedPayments}`);
+      
+      // 2. Buscar e deletar itens da conta se existirem
+      console.log('🧹 Buscando itens da conta para deleção...');
+      try {
+        const items = await storage.getCreditAccountItems(req.params.id);
+        console.log(`📋 Itens encontrados: ${items.length}`);
+        
+        let deletedItems = 0;
+        for (const item of items) {
+          const itemDeleted = await storage.deleteCreditAccountItem(item.id);
+          if (itemDeleted) {
+            console.log(`  ✅ Item deletado: ${item.id} - ${item.productName}`);
+            deletedItems++;
+          }
+        }
+        console.log(`✅ Total de itens deletados: ${deletedItems}`);
+      } catch (itemsError) {
+        console.log('ℹ️ Erro ao buscar/deletar itens (talvez não existam):', itemsError instanceof Error ? itemsError.message : String(itemsError));
+        // Não é um erro crítico se não conseguir deletar itens
+      }
+      
+      // 3. Finalmente, deletar a conta principal
+      console.log('🗑️ Deletando a conta principal...');
+      const deleted = await storage.deleteCreditAccount(req.params.id);
+      if (!deleted) {
+        console.log('❌ Falha ao deletar conta após limpeza');
+        return res.status(500).json({ message: "Failed to delete credit account after cleanup" });
+      }
+      
+      console.log(`✅ Conta de crediário deletada completamente: ${account.accountNumber}`);
+      console.log(`📈 Resumo: ${deletedPayments} pagamentos + conta principal`);
+      
+      res.json({ 
+        success: true, 
+        message: "Credit account and all related data deleted successfully",
+        accountNumber: account.accountNumber,
+        deletedPayments,
+        deletedAt: new Date().toISOString()
+      });
     } catch (error) {
-      console.error('❌ Erro ao deletar conta de crediário:', error);
-      res.status(500).json({ message: "Failed to delete credit account" });
+      console.error('❌ Erro durante deleção da conta de crediário:', error);
+      res.status(500).json({ 
+        message: "Failed to delete credit account",
+        error: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 
@@ -1463,27 +1627,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Reports API endpoint (usando dados reais)
+  // Reports API endpoint integrado - Inclui vendas manuais, pedidos e crediário
   app.get("/api/admin/reports", async (req, res) => {
     try {
       const { period = '30' } = req.query;
+      console.log('📈 Gerando relatório integrado para período:', period);
       
-      // Buscar dados reais dos produtos
+      // Buscar dados de todas as fontes
       const products = await storage.getAllProducts();
       const transactions = await storage.getAllTransactions();
       const reservations = await storage.getAllReservations();
       const coupons = await storage.getAllCoupons();
+      const orders = await storage.getAllOrders(); // NOVO: Incluir pedidos
+      const customers = await storage.getAllCustomers();
+      const creditAccounts = await storage.getAllCreditAccounts();
       
-      // Calcular métricas reais
-      const totalRevenue = transactions
-        .filter(t => t.type === "income" && t.status === "completed")
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      console.log('📈 Dados coletados:', {
+        products: products.length,
+        transactions: transactions.length,
+        orders: orders.length,
+        creditAccounts: creditAccounts.length
+      });
       
-      const totalExpenses = transactions
-        .filter(t => t.type === "expense" && t.status === "completed")
-        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      // VENDAS MANUAIS (sistema antigo de controle de estoque)
+      const manualSales = transactions.filter(t => 
+        t.type === "income" && 
+        t.status === "completed" && 
+        (t.category === "Vendas" || t.category === "sale")
+      );
       
-      // Estatísticas de reservas
+      const manualRevenue = manualSales.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      // VENDAS POR PEDIDOS (novo sistema)
+      const completedOrders = orders.filter(order => 
+        order.status === 'completed' || order.status === 'confirmed'
+      );
+      
+      // Pedidos à vista e crediário
+      const cashOrders = completedOrders.filter(order => 
+        order.paymentMethod && ['pix', 'cartao', 'dinheiro'].includes(order.paymentMethod)
+      );
+      
+      const creditOrders = completedOrders.filter(order => 
+        order.paymentMethod === 'credit'
+      );
+      
+      const ordersRevenue = completedOrders.reduce((sum, order) => 
+        sum + parseFloat(order.total?.toString() || '0'), 0
+      );
+      
+      // CREDIÁRIO (contas ativas e valores)
+      const totalCredit = creditAccounts.reduce((sum, acc) => 
+        sum + parseFloat(acc.totalAmount?.toString() || "0"), 0
+      );
+      
+      const totalPaid = creditAccounts.reduce((sum, acc) => 
+        sum + parseFloat(acc.paidAmount?.toString() || "0"), 0
+      );
+      
+      // COMBINAR VENDAS TOTAIS
+      const totalSales = manualSales.length + completedOrders.length;
+      const totalRevenue = manualRevenue + ordersRevenue;
+      
+      // ESTATÍSTICAS DE RESERVAS (sistema antigo)
       const totalReservations = reservations.length;
       const activeReservations = reservations.filter(r => r.status === 'active').length;
       const soldReservations = reservations.filter(r => r.status === 'sold').length;
@@ -1491,47 +1697,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(r => r.status === 'active')
         .reduce((sum, r) => sum + (r.quantity * parseFloat(r.unitPrice.toString())), 0);
       
-      // Produtos com estoque baixo
+      // PRODUTOS COM ESTOQUE BAIXO
       const lowStockProducts = products.filter(p => 
         (p.stock || 0) <= (p.minStock || 5)
       );
       
-      // Produtos mais vendidos (baseado em transações de venda do controle de estoque)
-      const salesTransactions = transactions.filter(t => 
-        t.type === "income" && 
-        t.status === "completed" && 
-        (t.category === "Vendas" || t.category === "sale") // Reconhece vendas do controle de estoque
-      );
+      // TOP PRODUTOS VENDIDOS (combinando vendas manuais e pedidos)
+      const productSales: { [key: string]: { count: number; revenue: number; productId?: string } } = {};
       
-      const productSales: { [key: string]: { count: number; revenue: number; product?: any; productId?: string } } = {};
-      
-      // Agrupar vendas por produto usando metadata quando disponível
-      salesTransactions.forEach(transaction => {
+      // Vendas manuais do controle de estoque
+      manualSales.forEach(transaction => {
         let productKey = '';
-        let productName = '';
         let productId = '';
         
-        // Tentar extrair informações do metadata primeiro (vendas do controle de estoque)
         if (transaction.metadata && typeof transaction.metadata === 'object') {
           const metadata = transaction.metadata as any;
           if (metadata.productId && metadata.productName) {
             productId = metadata.productId;
-            productName = metadata.productName;
-            productKey = productId; // Usar ID como chave principal
+            productKey = productId;
           }
         }
         
-        // Fallback para descrição se não tiver metadata
         if (!productKey) {
-          productName = transaction.description;
-          productKey = productName;
+          productKey = transaction.description || 'Produto não identificado';
         }
         
         if (!productSales[productKey]) {
           productSales[productKey] = { count: 0, revenue: 0, productId };
         }
         
-        // Extrair quantidade do metadata se disponível
         let quantity = 1;
         if (transaction.metadata && typeof transaction.metadata === 'object') {
           const metadata = transaction.metadata as any;
@@ -1544,13 +1738,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         productSales[productKey].revenue += parseFloat(transaction.amount);
       });
       
+      // Vendas por pedidos
+      for (const order of completedOrders) {
+        const orderItems = await storage.getOrderItems(order.id);
+        
+        for (const item of orderItems) {
+          const product = await storage.getProduct(item.productId);
+          const productKey = product?.id || item.productId;
+          
+          if (!productSales[productKey]) {
+            productSales[productKey] = { count: 0, revenue: 0, productId: item.productId };
+          }
+          
+          productSales[productKey].count += item.quantity;
+          productSales[productKey].revenue += parseFloat(item.totalPrice.toString());
+        }
+      }
+      
       // Buscar informações completas dos produtos para o relatório
       const topProducts = await Promise.all(
         Object.entries(productSales)
           .map(async ([key, data]) => {
             let product = { name: key };
             
-            // Se temos productId, buscar dados completos do produto
             if (data.productId) {
               const fullProduct = await storage.getProduct(data.productId);
               if (fullProduct) {
@@ -1566,14 +1776,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
       );
       
-      // Ordenar por receita e pegar top 5
       const sortedTopProducts = topProducts
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5);
       
-      // Vendas por mês (baseado em transações reais dos últimos 6 meses)
+      // VENDAS POR MÊS (combinando vendas manuais e pedidos)
       const now = new Date();
-      const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
       const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
       
       const salesByMonth = [];
@@ -1581,35 +1789,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const nextMonth = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
         
-        const monthTransactions = salesTransactions.filter(t => {
+        // Vendas manuais do mês
+        const monthManualTransactions = manualSales.filter(t => {
           const transactionDate = new Date(t.date || t.createdAt || new Date());
           return transactionDate >= monthDate && transactionDate < nextMonth;
         });
         
+        // Pedidos do mês
+        const monthOrders = completedOrders.filter(order => {
+          const orderDate = new Date(order.createdAt || new Date());
+          return orderDate >= monthDate && orderDate < nextMonth;
+        });
+        
+        const monthManualRevenue = monthManualTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+        const monthOrdersRevenue = monthOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+        
         salesByMonth.push({
           month: monthNames[monthDate.getMonth()],
-          sales: monthTransactions.length,
-          revenue: monthTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0)
+          sales: monthManualTransactions.length + monthOrders.length,
+          revenue: monthManualRevenue + monthOrdersRevenue,
+          manualSales: monthManualTransactions.length,
+          orderSales: monthOrders.length,
+          manualRevenue: monthManualRevenue,
+          orderRevenue: monthOrdersRevenue
         });
       }
       
-      res.json({
-        totalSales: salesTransactions.length,
-        totalRevenue: totalRevenue,
+      // RELATÓRIO INTEGRADO
+      const report = {
+        // Métricas gerais
+        totalSales,
+        totalRevenue,
         totalProducts: products.length,
+        
+        // Detalhamento por tipo de venda
+        manualSales: manualSales.length,
+        manualRevenue,
+        orderSales: completedOrders.length,
+        orderRevenue: ordersRevenue,
+        
+        // Pedidos por tipo de pagamento
+        cashOrders: cashOrders.length,
+        creditOrders: creditOrders.length,
+        
+        // Crediário
+        totalCredit,
+        totalPaid,
+        pendingCredit: totalCredit - totalPaid,
+        creditAccounts: creditAccounts.length,
+        activeAccounts: creditAccounts.filter(acc => acc.status === 'active').length,
+        
+        // Reservas (sistema antigo)
         totalReservations,
         activeReservations,
-        soldReservations, 
+        soldReservations,
         reservedValue,
+        
+        // Análises
         topProducts: sortedTopProducts,
         salesByMonth,
         lowStockProducts,
+        
+        // Outros
         activeCoupons: coupons.filter(c => c.active).length,
-        period: Number(period)
+        period: Number(period),
+        
+        // Metadados do relatório
+        generatedAt: new Date(),
+        dataIntegration: {
+          manualSalesIncluded: true,
+          ordersIncluded: true,
+          creditAccountsIncluded: true,
+          reservationsIncluded: true
+        }
+      };
+      
+      console.log('📈 Relatório integrado gerado:', {
+        totalSales: report.totalSales,
+        totalRevenue: report.totalRevenue,
+        sources: report.dataIntegration
       });
+      
+      res.json(report);
     } catch (error) {
-      console.error('❌ Erro ao gerar relatório:', error);
-      res.status(500).json({ message: "Failed to generate reports" });
+      console.error('❌ Erro ao gerar relatório integrado:', error);
+      res.status(500).json({ message: "Failed to generate integrated reports" });
     }
   });
 
@@ -1883,6 +2147,713 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to generate alerts" });
     }
   });
+
+  // ========================================
+  // 🛒 SISTEMA DE PEDIDOS - NOVAS APIS
+  // ========================================
+
+  // Gerar número sequencial para pedidos
+  let orderCounter = 1;
+  async function generateOrderNumber(): Promise<string> {
+    // TODO: Implementar busca do último número no banco
+    const paddedNumber = orderCounter.toString().padStart(3, '0');
+    orderCounter++;
+    return `PED${paddedNumber}`;
+  }
+
+  // Listar todos os pedidos
+  app.get("/api/admin/orders", async (req, res) => {
+    try {
+      console.log('🛒 Buscando todos os pedidos...');
+      
+      const orders = await storage.getAllOrders();
+      
+      console.log('✅ Pedidos encontrados:', orders.length);
+      res.json(orders);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedidos:', error);
+      res.status(500).json({ message: "Failed to fetch orders" });
+    }
+  });
+
+  // Buscar pedido por ID
+  app.get("/api/admin/orders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🛒 Buscando pedido:', id);
+      
+      const order = await storage.getOrder(id);
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log('✅ Pedido encontrado:', order.orderNumber);
+      res.json(order);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedido:', error);
+      res.status(500).json({ message: "Failed to fetch order" });
+    }
+  });
+
+  // Buscar itens de um pedido
+  app.get("/api/admin/orders/:id/items", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🛒 Buscando itens do pedido:', id);
+      
+      const items = await storage.getOrderItems(id);
+      
+      console.log('✅ Itens encontrados:', items.length);
+      res.json(items);
+    } catch (error) {
+      console.error('❌ Erro ao buscar itens do pedido:', error);
+      res.status(500).json({ message: "Failed to fetch order items" });
+    }
+  });
+
+  // Criar novo pedido
+  app.post("/api/admin/orders", async (req, res) => {
+    try {
+      console.log('🛒 Criando novo pedido:', req.body);
+      
+      const { items, ...orderData } = req.body;
+      
+      // Usar storage real para criar o pedido
+      const order = await storage.createOrder({
+        ...orderData,
+        status: orderData.status || 'pending',
+        paymentStatus: orderData.paymentStatus || 'pending',
+      });
+      
+      // Criar itens do pedido se existirem
+      if (items && items.length > 0) {
+        for (const item of items) {
+          await storage.createOrderItem({
+            orderId: order.id,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice.toString(),
+            totalPrice: item.totalPrice.toString(),
+          });
+        }
+      }
+      
+      console.log('✅ Pedido criado:', order.orderNumber);
+      res.status(201).json(order);
+    } catch (error) {
+      console.error('❌ Erro ao criar pedido:', error);
+      res.status(500).json({ message: "Failed to create order" });
+    }
+  });
+
+  // Atualizar pedido
+  app.put("/api/admin/orders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🛒 Atualizando pedido:', id, req.body);
+      
+      const order = await storage.updateOrder(id, req.body);
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log('✅ Pedido atualizado:', order.orderNumber);
+      res.json(order);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar pedido:', error);
+      res.status(500).json({ message: "Failed to update order" });
+    }
+  });
+
+  // Confirmar pedido
+  app.post("/api/admin/orders/:id/confirm", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('✅ Confirmando pedido:', id);
+      
+      // 1. Buscar o pedido
+      const orderData = await storage.getOrder(id);
+      if (!orderData) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // 2. Buscar os itens do pedido
+      const orderItems = await storage.getOrderItems(id);
+      
+      // 3. Atualizar estoque dos produtos
+      if (orderItems && orderItems.length > 0) {
+        console.log('📦 Atualizando estoque dos produtos...');
+        for (const item of orderItems) {
+          try {
+            // Buscar produto atual
+            const product = await storage.getProduct(item.productId);
+            if (product) {
+              const newStock = Math.max(0, (product.stock || 0) - item.quantity);
+              console.log(`📦 Produto ${product.name}: ${product.stock || 0} → ${newStock} (reduzido ${item.quantity})`);
+              
+              // Atualizar estoque
+              await storage.updateProduct(item.productId, {
+                stock: newStock
+              });
+            }
+          } catch (stockError) {
+            console.error(`❌ Erro ao atualizar estoque do produto ${item.productId}:`, stockError);
+            // Continua o processo mesmo se um produto falhar
+          }
+        }
+      }
+      
+      // 4. Criar transação financeira (apenas para pedidos à vista)
+      if (orderData.paymentMethod && ['pix', 'cartao', 'dinheiro'].includes(orderData.paymentMethod)) {
+        try {
+          console.log('💰 Criando transação financeira para pedido à vista...');
+          
+          const transactionData = {
+            type: 'income' as const,
+            amount: orderData.total?.toString() || '0',
+            description: `Venda à Vista - Pedido ${orderData.orderNumber}`,
+            category: 'Vendas',
+            status: 'completed',
+            metadata: {
+              orderId: orderData.id,
+              orderNumber: orderData.orderNumber,
+              paymentMethod: orderData.paymentMethod,
+              type: 'order_sale',
+              reversible: true
+            }
+          };
+          
+          await storage.createTransaction(transactionData);
+          console.log('💰 Transação financeira criada com sucesso');
+        } catch (financialError) {
+          console.error('❌ Erro ao criar transação financeira:', financialError);
+          // Não bloqueia o pedido se houver erro financeiro
+        }
+      }
+      
+      // 5. Confirmar o pedido
+      const order = await storage.updateOrder(id, {
+        status: 'confirmed'
+      });
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log('✅ Pedido confirmado, estoque atualizado e transação criada:', order.orderNumber);
+      res.json(order);
+    } catch (error) {
+      console.error('❌ Erro ao confirmar pedido:', error);
+      res.status(500).json({ message: "Failed to confirm order" });
+    }
+  });
+
+  // Cancelar pedido
+  app.post("/api/admin/orders/:id/cancel", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      console.log('❌ Cancelando pedido:', id, { reason });
+      
+      // 1. Buscar o pedido
+      const orderData = await storage.getOrder(id);
+      if (!orderData) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // 2. Se o pedido foi confirmado/concluído, reverter integrações
+      if (orderData.status === 'confirmed' || orderData.status === 'completed') {
+        const orderItems = await storage.getOrderItems(id);
+        
+        // Devolver produtos ao estoque
+        if (orderItems && orderItems.length > 0) {
+          console.log('🔄 Devolvendo produtos ao estoque...');
+          for (const item of orderItems) {
+            try {
+              const product = await storage.getProduct(item.productId);
+              if (product) {
+                const newStock = (product.stock || 0) + item.quantity;
+                console.log(`🔄 Produto ${product.name}: ${product.stock || 0} → ${newStock} (devolvido ${item.quantity})`);
+                
+                await storage.updateProduct(item.productId, {
+                  stock: newStock
+                });
+              }
+            } catch (stockError) {
+              console.error(`❌ Erro ao devolver estoque do produto ${item.productId}:`, stockError);
+            }
+          }
+        }
+        
+        // Reverter transação financeira (para pedidos à vista)
+        if (orderData.paymentMethod && ['pix', 'cartao', 'dinheiro'].includes(orderData.paymentMethod)) {
+          try {
+            console.log('💰 Criando estorno da transação financeira...');
+            
+            const reversalData = {
+              type: 'expense' as const,
+              amount: orderData.total?.toString() || '0',
+              description: `Estorno - Pedido Cancelado ${orderData.orderNumber} - ${reason || 'Sem motivo especificado'}`,
+              category: 'Estornos',
+              status: 'completed',
+              metadata: {
+                orderId: orderData.id,
+                orderNumber: orderData.orderNumber,
+                paymentMethod: orderData.paymentMethod,
+                type: 'order_reversal',
+                reason: reason || 'Cancelamento de pedido'
+              }
+            };
+            
+            await storage.createTransaction(reversalData);
+            console.log('💰 Estorno criado com sucesso');
+          } catch (financialError) {
+            console.error('❌ Erro ao criar estorno:', financialError);
+          }
+        }
+      }
+      
+      // 3. Cancelar o pedido
+      const order = await storage.updateOrder(id, {
+        status: 'cancelled',
+        notes: reason ? `Cancelado: ${reason}` : 'Pedido cancelado'
+      });
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log('❌ Pedido cancelado, estoque restaurado e estorno criado:', order.orderNumber);
+      res.json(order);
+    } catch (error) {
+      console.error('❌ Erro ao cancelar pedido:', error);
+      res.status(500).json({ message: "Failed to cancel order" });
+    }
+  });
+
+  // Concluir pedido
+  app.post("/api/admin/orders/:id/complete", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('✅ Concluindo pedido:', id);
+      
+      // 1. Buscar o pedido
+      const orderData = await storage.getOrder(id);
+      if (!orderData) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // 2. Se o pedido ainda está 'pending', atualizar estoque e criar transação
+      if (orderData.status === 'pending') {
+        const orderItems = await storage.getOrderItems(id);
+        
+        // Atualizar estoque
+        if (orderItems && orderItems.length > 0) {
+          console.log('📦 Pedido pendente - Atualizando estoque dos produtos...');
+          for (const item of orderItems) {
+            try {
+              const product = await storage.getProduct(item.productId);
+              if (product) {
+                const newStock = Math.max(0, (product.stock || 0) - item.quantity);
+                console.log(`📦 Produto ${product.name}: ${product.stock || 0} → ${newStock} (reduzido ${item.quantity})`);
+                
+                await storage.updateProduct(item.productId, {
+                  stock: newStock
+                });
+              }
+            } catch (stockError) {
+              console.error(`❌ Erro ao atualizar estoque do produto ${item.productId}:`, stockError);
+            }
+          }
+        }
+        
+        // Criar transação financeira (apenas para pedidos à vista)
+        if (orderData.paymentMethod && ['pix', 'cartao', 'dinheiro'].includes(orderData.paymentMethod)) {
+          try {
+            console.log('💰 Criando transação financeira para pedido à vista...');
+            
+            const transactionData = {
+              type: 'income' as const,
+              amount: orderData.total?.toString() || '0',
+              description: `Venda à Vista - Pedido ${orderData.orderNumber}`,
+              category: 'Vendas',
+              status: 'completed',
+              metadata: {
+                orderId: orderData.id,
+                orderNumber: orderData.orderNumber,
+                paymentMethod: orderData.paymentMethod,
+                type: 'order_sale',
+                reversible: true
+              }
+            };
+            
+            await storage.createTransaction(transactionData);
+            console.log('💰 Transação financeira criada com sucesso');
+          } catch (financialError) {
+            console.error('❌ Erro ao criar transação financeira:', financialError);
+          }
+        }
+      }
+      
+      // 3. Para pedidos de crediário, integrar com conta de crediário
+      if (orderData.paymentMethod === 'credit' && orderData.customerId) {
+        try {
+          console.log('💳 Integrando pedido crediário com conta...');
+          
+          // Buscar ou criar conta de crediário para o cliente
+          const customerId = orderData.customerId!; // Garantido pelo condicional acima
+          const customer = await storage.getCustomer(customerId);
+          if (customer) {
+            // Buscar conta existente ou criar nova
+            let creditAccount;
+            const existingAccounts = await storage.getCreditAccountsByCustomer(customerId);
+            const activeAccount = existingAccounts.find(acc => acc.status === 'active');
+            
+            if (activeAccount) {
+              creditAccount = activeAccount;
+            } else {
+              // Criar nova conta de crediário
+              creditAccount = await storage.createCreditAccount({
+                customerId: customerId,
+                accountNumber: `ACC-${Date.now()}`, // Gerar número único
+                totalAmount: orderData.total?.toString() || '0',
+                paidAmount: '0',
+                nextPaymentDate: orderData.deliveryDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 dias
+                status: 'active'
+              });
+            }
+            
+            // Adicionar itens do pedido à conta de crediário
+            const orderItems = await storage.getOrderItems(id);
+            for (const item of orderItems) {
+              const product = await storage.getProduct(item.productId);
+              if (product) {
+                await storage.createCreditAccountItem({
+                  creditAccountId: creditAccount.id,
+                  productId: item.productId,
+                  productName: product.name,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice.toString(),
+                  totalPrice: item.totalPrice.toString(),
+                  metadata: {
+                    source: 'order',
+                    orderId: orderData.id,
+                    orderNumber: orderData.orderNumber,
+                    addedAt: new Date().toISOString()
+                  }
+                });
+              }
+            }
+            
+            console.log('💳 Pedido crediário integrado com conta:', creditAccount.id);
+          }
+        } catch (creditError) {
+          console.error('❌ Erro ao integrar com conta de crediário:', creditError);
+        }
+      }
+      
+      // 4. Concluir o pedido
+      const order = await storage.updateOrder(id, {
+        status: 'completed'
+      });
+      
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      console.log('✅ Pedido concluído e integrações realizadas:', order.orderNumber);
+      res.json(order);
+    } catch (error) {
+      console.error('❌ Erro ao concluir pedido:', error);
+      res.status(500).json({ message: "Failed to complete order" });
+    }
+  });
+
+  // Deletar pedido
+  app.delete("/api/admin/orders/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🛒 Deletando pedido:', id);
+      
+      // Primeiro, verificar se o pedido existe
+      const orderData = await storage.getOrder(id);
+      if (!orderData) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // Se o pedido foi confirmado/concluído, reverter integrações
+      if (orderData.status === 'confirmed' || orderData.status === 'completed') {
+        const orderItems = await storage.getOrderItems(id);
+        
+        // Devolver produtos ao estoque
+        if (orderItems && orderItems.length > 0) {
+          console.log('🔄 Devolvendo produtos ao estoque...');
+          for (const item of orderItems) {
+            try {
+              const product = await storage.getProduct(item.productId);
+              if (product) {
+                const newStock = (product.stock || 0) + item.quantity;
+                console.log(`🔄 Produto ${product.name}: ${product.stock || 0} → ${newStock} (devolvido ${item.quantity})`);
+                
+                await storage.updateProduct(item.productId, {
+                  stock: newStock
+                });
+              }
+            } catch (stockError) {
+              console.error(`❌ Erro ao devolver estoque do produto ${item.productId}:`, stockError);
+            }
+          }
+        }
+        
+        // Se for crediário pago, criar estorno
+        if (orderData.paymentMethod === 'credit' && orderData.paymentStatus === 'paid') {
+          try {
+            console.log('💰 Criando estorno para crediário pago...');
+            await storage.createTransaction({
+              type: 'expense',
+              category: 'estorno',
+              amount: orderData.total?.toString() || '0',
+              description: `Estorno do pedido ${orderData.orderNumber} - Cliente: ${orderData.customerName || 'N/A'}`,
+              date: new Date(),
+            });
+          } catch (transactionError) {
+            console.error('❌ Erro ao criar estorno:', transactionError);
+          }
+        }
+      }
+      
+      // Deletar o pedido (os itens serão deletados em cascade)
+      const deleted = await storage.deleteOrder(id);
+      
+      if (!deleted) {
+        return res.status(500).json({ message: "Failed to delete order" });
+      }
+      
+      console.log('✅ Pedido deletado com sucesso:', orderData.orderNumber);
+      res.json({ success: true, message: "Order deleted successfully" });
+    } catch (error) {
+      console.error('❌ Erro ao deletar pedido:', error);
+      res.status(500).json({ message: "Failed to delete order" });
+    }
+  });
+
+  // Buscar pedidos por cliente
+  app.get("/api/admin/customers/:customerId/orders", async (req, res) => {
+    try {
+      const { customerId } = req.params;
+      console.log('🛒 Buscando pedidos do cliente:', customerId);
+      
+      // TODO: Implementar busca no storage
+      // const orders = await storage.getOrdersByCustomer(customerId);
+      
+      const orders: any[] = [];
+      
+      console.log('✅ Pedidos do cliente encontrados:', orders.length);
+      res.json(orders);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedidos do cliente:', error);
+      res.status(500).json({ message: "Failed to fetch customer orders" });
+    }
+  });
+
+  // Confirmar pagamento de pedido
+  app.post("/api/admin/orders/:id/confirm-payment", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { paymentMethod, notes } = req.body;
+      
+      console.log('💳 Confirmando pagamento do pedido:', id, { paymentMethod, notes });
+      
+      // TODO: Implementar confirmação de pagamento
+      // Atualizar status do pedido para 'paid'
+      // Registrar transação financeira
+      
+      res.status(404).json({ message: "Order not found" });
+    } catch (error) {
+      console.error('❌ Erro ao confirmar pagamento:', error);
+      res.status(500).json({ message: "Failed to confirm payment" });
+    }
+  });
+
+  console.log('🛒 Rotas de pedidos registradas:');
+  console.log('✅ GET /api/admin/orders - Listar pedidos');
+  console.log('✅ GET /api/admin/orders/:id - Buscar pedido');
+  console.log('✅ POST /api/admin/orders - Criar pedido');
+  console.log('✅ PUT /api/admin/orders/:id - Atualizar pedido');
+  console.log('✅ DELETE /api/admin/orders/:id - Deletar pedido');
+  console.log('✅ GET /api/admin/customers/:customerId/orders - Pedidos por cliente');
+  console.log('✅ POST /api/admin/orders/:id/confirm-payment - Confirmar pagamento');
+  console.log('');
+
+  // ========================================
+  // 🌟 SISTEMA DE AVALIAÇÕES - NOVA API
+  // ========================================
+
+  // Listar todas as avaliações (admin)
+  app.get("/api/admin/reviews", async (req, res) => {
+    try {
+      console.log('🌟 Buscando todas as avaliações...');
+      
+      const reviews = await storage.getAllProductReviews();
+      
+      console.log('✅ Avaliações encontradas:', reviews.length);
+      res.json(reviews);
+    } catch (error) {
+      console.error('❌ Erro ao buscar avaliações:', error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
+    }
+  });
+
+  // Buscar avaliações de um produto específico (público)
+  app.get("/api/products/:productId/reviews", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      console.log('🌟 Buscando avaliações do produto:', productId);
+      
+      const reviews = await storage.getProductReviews(productId);
+      
+      console.log('✅ Avaliações do produto encontradas:', reviews.length);
+      res.json(reviews);
+    } catch (error) {
+      console.error('❌ Erro ao buscar avaliações do produto:', error);
+      res.status(500).json({ message: "Failed to fetch product reviews" });
+    }
+  });
+
+  // Buscar avaliação por ID (admin)
+  app.get("/api/admin/reviews/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🌟 Buscando avaliação:', id);
+      
+      const review = await storage.getProductReview(id);
+      
+      if (!review) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      console.log('✅ Avaliação encontrada:', review.id);
+      res.json(review);
+    } catch (error) {
+      console.error('❌ Erro ao buscar avaliação:', error);
+      res.status(500).json({ message: "Failed to fetch review" });
+    }
+  });
+
+  // Criar nova avaliação (público)
+  app.post("/api/products/:productId/reviews", async (req, res) => {
+    try {
+      const { productId } = req.params;
+      const { customerId, orderId, rating, title, comment, isVerifiedPurchase } = req.body;
+      
+      console.log('🌟 Criando nova avaliação para produto:', productId);
+      
+      // Validar dados obrigatórios
+      if (!customerId || !rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "customerId e rating (1-5) são obrigatórios" });
+      }
+      
+      const reviewData = {
+        productId,
+        customerId,
+        orderId: orderId || null,
+        rating: parseInt(rating),
+        title: title || null,
+        comment: comment || null,
+        isVerifiedPurchase: isVerifiedPurchase || false,
+        isApproved: true // Por padrão aprovar automaticamente
+      };
+      
+      const review = await storage.createProductReview(reviewData);
+      
+      console.log('✅ Avaliação criada com sucesso:', review.id);
+      res.status(201).json(review);
+    } catch (error) {
+      console.error('❌ Erro ao criar avaliação:', error);
+      res.status(500).json({ message: "Failed to create review" });
+    }
+  });
+
+  // Atualizar avaliação (admin)
+  app.put("/api/admin/reviews/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+      
+      console.log('🌟 Atualizando avaliação:', id);
+      
+      // Validar rating se fornecido
+      if (updateData.rating && (updateData.rating < 1 || updateData.rating > 5)) {
+        return res.status(400).json({ message: "Rating deve estar entre 1 e 5" });
+      }
+      
+      const review = await storage.updateProductReview(id, updateData);
+      
+      if (!review) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      console.log('✅ Avaliação atualizada:', review.id);
+      res.json(review);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar avaliação:', error);
+      res.status(500).json({ message: "Failed to update review" });
+    }
+  });
+
+  // Deletar avaliação (admin)
+  app.delete("/api/admin/reviews/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🌟 Deletando avaliação:', id);
+      
+      const deleted = await storage.deleteProductReview(id);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      console.log('✅ Avaliação deletada:', id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('❌ Erro ao deletar avaliação:', error);
+      res.status(500).json({ message: "Failed to delete review" });
+    }
+  });
+
+  // Aprovar/reprovar avaliação (admin)
+  app.patch("/api/admin/reviews/:id/approve", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { isApproved } = req.body;
+      
+      console.log('🌟 Alterando aprovação da avaliação:', id, { isApproved });
+      
+      const review = await storage.updateProductReview(id, { isApproved });
+      
+      if (!review) {
+        return res.status(404).json({ message: "Review not found" });
+      }
+      
+      console.log('✅ Status de aprovação atualizado:', review.id);
+      res.json(review);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar aprovação:', error);
+      res.status(500).json({ message: "Failed to update review approval" });
+    }
+  });
+
+  console.log('🌟 Rotas de avaliações registradas:');
+  console.log('✅ GET /api/admin/reviews - Listar todas as avaliações');
+  console.log('✅ GET /api/products/:productId/reviews - Avaliações de um produto');
+  console.log('✅ GET /api/admin/reviews/:id - Buscar avaliação por ID');
+  console.log('✅ POST /api/products/:productId/reviews - Criar avaliação');
+  console.log('✅ PUT /api/admin/reviews/:id - Atualizar avaliação');
+  console.log('✅ DELETE /api/admin/reviews/:id - Deletar avaliação');
+  console.log('✅ PATCH /api/admin/reviews/:id/approve - Aprovar/reprovar avaliação');
+  console.log('');
 
   const httpServer = createServer(app);
   return httpServer;

@@ -13,12 +13,14 @@ import ProductDetail from "@/pages/product-detail";
 import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminProducts from "@/pages/admin/products";
+import AdminOrders from "@/pages/admin/orders";
 import AdminReservations from "@/pages/admin/reservations";
 import AdminCollections from "@/pages/admin/collections";
 import AdminCoupons from "@/pages/admin/coupons";
 import AdminFinancial from "@/pages/admin/financial";
 import AdminReports from "@/pages/admin/reports";
 import AdminProductRequests from "@/pages/admin/product-requests";
+import AdminReviews from "@/pages/admin/reviews";
 
 function Router() {
   return (
@@ -30,12 +32,14 @@ function Router() {
       <Route path="/admin/login" component={AdminLogin} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/produtos" component={AdminProducts} />
+      <Route path="/admin/pedidos" component={AdminOrders} />
       <Route path="/admin/reservas" component={AdminReservations} />
       <Route path="/admin/colecoes" component={AdminCollections} />
       <Route path="/admin/cupons" component={AdminCoupons} />
       <Route path="/admin/financeiro" component={AdminFinancial} />
       <Route path="/admin/relatorios" component={AdminReports} />
       <Route path="/admin/solicitacoes" component={AdminProductRequests} />
+      <Route path="/admin/avaliacoes" component={AdminReviews} />
       <Route component={NotFound} />
     </Switch>
   );

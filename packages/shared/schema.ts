@@ -204,6 +204,22 @@ export const creditPayments = pgTable("credit_payments", {
   installmentIdx: index("credit_payments_installment_idx").on(table.installmentNumber),
 }));
 
+// Nova tabela: Itens da Conta de Crediário
+export const creditAccountItems = pgTable("credit_account_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  creditAccountId: varchar("credit_account_id").references(() => creditAccounts.id).notNull(),
+  productId: varchar("product_id").references(() => products.id).notNull(),
+  productName: text("product_name").notNull(), // Nome do produto no momento da venda
+  quantity: integer("quantity").notNull(),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+  metadata: jsonb("metadata"), // Dados extras para rastrear origem (pedido, manual, etc.)
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  accountIdx: index("credit_account_items_account_idx").on(table.creditAccountId),
+  productIdx: index("credit_account_items_product_idx").on(table.productId),
+}));
+
 // Nova tabela: Analytics/Métricas
 export const analytics = pgTable("analytics", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -354,7 +370,10 @@ export const customerAddresses = pgTable('customer_addresses', {
 // Pedidos
 export const orders = pgTable('orders', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  customerId: varchar('customer_id').references(() => customers.id).notNull(),
+  customerId: varchar('customer_id').references(() => customers.id), // Nullable para vendas à vista
+  customerName: text('customer_name'), // Para vendas sem cadastro
+  customerPhone: text('customer_phone'), // Para vendas sem cadastro
+  customerEmail: text('customer_email'), // Para vendas sem cadastro (opcional)
   orderNumber: text('order_number').unique().notNull(),
   status: text('status').notNull().default('pending'), // 'pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'
   paymentMethod: text('payment_method'), // 'pix', 'cartao', 'dinheiro'
@@ -507,6 +526,11 @@ export const insertCreditPaymentSchema = createInsertSchema(creditPayments).omit
   createdAt: true,
 });
 
+export const insertCreditAccountItemSchema = createInsertSchema(creditAccountItems).omit({
+  id: true,
+  createdAt: true,
+});
+
 // ========== TYPES PARA NOVAS TABELAS ==========
 
 export type Customer = typeof customers.$inferSelect;
@@ -542,6 +566,9 @@ export type InsertCreditAccount = z.infer<typeof insertCreditAccountSchema>;
 export type CreditPayment = typeof creditPayments.$inferSelect;
 export type InsertCreditPayment = z.infer<typeof insertCreditPaymentSchema>;
 
+export type CreditAccountItem = typeof creditAccountItems.$inferSelect;
+export type InsertCreditAccountItem = z.infer<typeof insertCreditAccountItemSchema>;
+
 // Tabela de solicitações de produtos
 export const productRequests = pgTable("product_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -565,3 +592,9 @@ export const insertProductRequestSchema = createInsertSchema(productRequests).om
 
 export type ProductRequest = typeof productRequests.$inferSelect;
 export type InsertProductRequest = z.infer<typeof insertProductRequestSchema>;
+
+// ========================================
+// 🛒 SISTEMA DE PEDIDOS - INTEGRADO COM E-COMMERCE
+// ========================================
+// As tabelas orders e orderItems já estão definidas acima na seção de e-commerce
+// com todos os campos necessários para o sistema de pedidos

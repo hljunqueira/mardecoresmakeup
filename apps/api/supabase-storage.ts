@@ -35,6 +35,12 @@ import type {
   InsertCreditAccount,
   CreditPayment,
   InsertCreditPayment,
+  CreditAccountItem,
+  InsertCreditAccountItem,
+  Order,
+  InsertOrder,
+  OrderItem,
+  InsertOrderItem,
 } from '@shared/schema';
 import type { IStorage } from './storage';
 
@@ -1042,6 +1048,545 @@ export class SupabaseStorage implements IStorage {
       return result.length > 0;
     } catch (error) {
       console.error('❌ Erro ao deletar pagamento:', error);
+      throw error;
+    }
+  }
+
+  // Métodos adicionais da interface IStorage que estavam faltando
+  async getCreditPaymentsByAccount(accountId: string): Promise<CreditPayment[]> {
+    return this.getCreditPayments(accountId);
+  }
+
+  async getCreditPayment(id: string): Promise<CreditPayment | undefined> {
+    try {
+      const result = await db.select().from(schema.creditPayments)
+        .where(eq(schema.creditPayments.id, id))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar pagamento:', error);
+      throw error;
+    }
+  }
+
+  async getCreditPaymentsReport(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    customerId?: string;
+    accountId?: string;
+  }): Promise<CreditPayment[]> {
+    try {
+      // Implementação simples por enquanto
+      return await this.getCreditPayments(filters.accountId || '');
+    } catch (error) {
+      console.error('❌ Erro ao gerar relatório de pagamentos:', error);
+      throw error;
+    }
+  }
+
+  // Credit Account Item operations
+  async getCreditAccountItems(creditAccountId: string): Promise<CreditAccountItem[]> {
+    try {
+      return await db.select().from(schema.creditAccountItems)
+        .where(eq(schema.creditAccountItems.creditAccountId, creditAccountId))
+        .orderBy(schema.creditAccountItems.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar itens da conta:', error);
+      throw error;
+    }
+  }
+
+  async createCreditAccountItem(item: InsertCreditAccountItem): Promise<CreditAccountItem> {
+    try {
+      const result = await db.insert(schema.creditAccountItems).values({
+        ...item,
+        createdAt: new Date(),
+      }).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar item da conta:', error);
+      throw error;
+    }
+  }
+
+  async updateCreditAccountItem(id: string, item: Partial<CreditAccountItem>): Promise<CreditAccountItem | undefined> {
+    try {
+      const result = await db.update(schema.creditAccountItems)
+        .set(item)
+        .where(eq(schema.creditAccountItems.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar item da conta:', error);
+      throw error;
+    }
+  }
+
+  async deleteCreditAccountItem(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.creditAccountItems)
+        .where(eq(schema.creditAccountItems.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar item da conta:', error);
+      throw error;
+    }
+  }
+
+  // ================================================================
+  // OPERAÇÕES DE PEDIDOS - NOVO SISTEMA
+  // ================================================================
+
+  async getAllOrders(): Promise<Order[]> {
+    try {
+      console.log('🛒 STORAGE: Buscando todos os pedidos');
+      return await db.select().from(schema.orders)
+        .orderBy(sql`${schema.orders.createdAt} DESC`);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedidos:', error);
+      throw error;
+    }
+  }
+
+  async getOrder(id: string): Promise<Order | undefined> {
+    try {
+      console.log('🛒 STORAGE: Buscando pedido:', id);
+      const result = await db.select().from(schema.orders)
+        .where(eq(schema.orders.id, id))
+        .limit(1);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedido:', error);
+      throw error;
+    }
+  }
+
+  async getOrdersByCustomer(customerId: string): Promise<Order[]> {
+    try {
+      console.log('🛒 STORAGE: Buscando pedidos do cliente:', customerId);
+      return await db.select().from(schema.orders)
+        .where(eq(schema.orders.customerId, customerId))
+        .orderBy(sql`${schema.orders.createdAt} DESC`);
+    } catch (error) {
+      console.error('❌ Erro ao buscar pedidos do cliente:', error);
+      throw error;
+    }
+  }
+
+  async createOrder(orderData: InsertOrder): Promise<Order> {
+    try {
+      console.log('🛒 STORAGE: Criando novo pedido:', orderData);
+      
+      // Gerar número do pedido se não fornecido
+      const orderNumber = orderData.orderNumber || await this.generateOrderNumber();
+      
+      const result = await db.insert(schema.orders).values({
+        ...orderData,
+        orderNumber,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }).returning();
+      
+      console.log('✅ STORAGE: Pedido criado com sucesso:', result[0].orderNumber);
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar pedido:', error);
+      throw error;
+    }
+  }
+
+  async updateOrder(id: string, orderData: Partial<Order>): Promise<Order | undefined> {
+    try {
+      console.log('🛒 STORAGE: Atualizando pedido:', id);
+      const result = await db.update(schema.orders)
+        .set({
+          ...orderData,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.orders.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar pedido:', error);
+      throw error;
+    }
+  }
+
+  async deleteOrder(id: string): Promise<boolean> {
+    try {
+      console.log('🛒 STORAGE: Deletando pedido:', id);
+      
+      // Primeiro deletar itens do pedido
+      await db.delete(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, id));
+      
+      // Depois deletar o pedido
+      const result = await db.delete(schema.orders)
+        .where(eq(schema.orders.id, id))
+        .returning();
+      
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar pedido:', error);
+      throw error;
+    }
+  }
+
+  async getOrdersReport(filters: {
+    startDate?: Date;
+    endDate?: Date;
+    customerId?: string;
+    status?: string;
+    paymentType?: string;
+  }): Promise<Order[]> {
+    try {
+      // Usar uma abordagem mais simples para evitar problemas de tipo do Drizzle
+      let queryConditions = '';
+      const queryParams: any[] = [];
+      
+      if (filters.customerId) {
+        queryConditions += ' WHERE customer_id = $1';
+        queryParams.push(filters.customerId);
+      }
+      
+      if (filters.status) {
+        queryConditions += queryConditions ? ' AND' : ' WHERE';
+        queryConditions += ` status = $${queryParams.length + 1}`;
+        queryParams.push(filters.status);
+      }
+      
+      if (filters.paymentType) {
+        queryConditions += queryConditions ? ' AND' : ' WHERE';
+        queryConditions += ` payment_method = $${queryParams.length + 1}`;
+        queryParams.push(filters.paymentType);
+      }
+      
+      if (filters.startDate) {
+        queryConditions += queryConditions ? ' AND' : ' WHERE';
+        queryConditions += ` created_at >= $${queryParams.length + 1}`;
+        queryParams.push(filters.startDate);
+      }
+      
+      if (filters.endDate) {
+        queryConditions += queryConditions ? ' AND' : ' WHERE';
+        queryConditions += ` created_at <= $${queryParams.length + 1}`;
+        queryParams.push(filters.endDate);
+      }
+      
+      const result = await client`
+        SELECT * FROM orders 
+        ${queryConditions ? sql.raw(queryConditions) : sql``}
+        ORDER BY created_at DESC
+      `;
+      
+      return result as Order[];
+    } catch (error) {
+      console.error('❌ Erro ao gerar relatório de pedidos:', error);
+      throw error;
+    }
+  }
+
+  // Order Items operations
+  async getOrderItems(orderId: string): Promise<OrderItem[]> {
+    try {
+      return await db.select().from(schema.orderItems)
+        .where(eq(schema.orderItems.orderId, orderId));
+    } catch (error) {
+      console.error('❌ Erro ao buscar itens do pedido:', error);
+      throw error;
+    }
+  }
+
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    try {
+      const result = await db.insert(schema.orderItems).values(item).returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar item do pedido:', error);
+      throw error;
+    }
+  }
+
+  async createOrderWithItems(orderData: InsertOrder, items: InsertOrderItem[]): Promise<Order> {
+    try {
+      console.log('🛒 STORAGE: Criando pedido com itens:', { orderData, items: items.length });
+      
+      // Criar o pedido
+      const order = await this.createOrder(orderData);
+      
+      // Criar os itens do pedido
+      if (items.length > 0) {
+        const itemsWithOrderId = items.map(item => ({
+          ...item,
+          orderId: order.id,
+        }));
+        
+        await db.insert(schema.orderItems).values(itemsWithOrderId);
+        console.log('✅ STORAGE: Itens do pedido criados:', items.length);
+      }
+      
+      return order;
+    } catch (error) {
+      console.error('❌ Erro ao criar pedido com itens:', error);
+      throw error;
+    }
+  }
+
+  // Order utilities
+  async generateOrderNumber(): Promise<string> {
+    try {
+      // Buscar o último pedido para gerar próximo número
+      const lastOrder = await db.select({ orderNumber: schema.orders.orderNumber })
+        .from(schema.orders)
+        .where(sql`${schema.orders.orderNumber} LIKE 'PED%'`)
+        .orderBy(sql`${schema.orders.createdAt} DESC`)
+        .limit(1);
+      
+      let nextNumber = 1;
+      
+      if (lastOrder.length > 0 && lastOrder[0].orderNumber) {
+        const currentNumber = parseInt(lastOrder[0].orderNumber.replace('PED', ''));
+        if (!isNaN(currentNumber)) {
+          nextNumber = currentNumber + 1;
+        }
+      }
+      
+      const paddedNumber = nextNumber.toString().padStart(3, '0');
+      return `PED${paddedNumber}`;
+    } catch (error) {
+      console.error('❌ Erro ao gerar número do pedido:', error);
+      // Fallback: usar timestamp
+      return `PED${Date.now().toString().slice(-6)}`;
+    }
+  }
+
+  async calculateOrderTotal(orderId: string): Promise<number> {
+    try {
+      const items = await this.getOrderItems(orderId);
+      return items.reduce((total, item) => {
+        return total + parseFloat(item.totalPrice.toString());
+      }, 0);
+    } catch (error) {
+      console.error('❌ Erro ao calcular total do pedido:', error);
+      return 0;
+    }
+  }
+
+  // Métodos adicionais de OrderItem que estavam faltando
+  async updateOrderItem(id: string, item: Partial<OrderItem>): Promise<OrderItem | undefined> {
+    try {
+      const result = await db.update(schema.orderItems)
+        .set(item)
+        .where(eq(schema.orderItems.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar item do pedido:', error);
+      throw error;
+    }
+  }
+
+  async deleteOrderItem(id: string): Promise<boolean> {
+    try {
+      const result = await db.delete(schema.orderItems)
+        .where(eq(schema.orderItems.id, id))
+        .returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar item do pedido:', error);
+      throw error;
+    }
+  }
+
+  // ================================================================
+  // OPERAÇÕES DE AVALIAÇÕES DE PRODUTOS
+  // ================================================================
+
+  async getAllProductReviews(): Promise<any[]> {
+    try {
+      return await db.select({
+        id: schema.productReviews.id,
+        productId: schema.productReviews.productId,
+        customerId: schema.productReviews.customerId,
+        orderId: schema.productReviews.orderId,
+        rating: schema.productReviews.rating,
+        title: schema.productReviews.title,
+        comment: schema.productReviews.comment,
+        isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
+        isApproved: schema.productReviews.isApproved,
+        createdAt: schema.productReviews.createdAt,
+        // Join com customer para pegar nome
+        customerName: schema.customers.name,
+        customerEmail: schema.customers.email,
+        // Join com product para pegar nome do produto
+        productName: schema.products.name,
+      })
+      .from(schema.productReviews)
+      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
+      .leftJoin(schema.products, eq(schema.productReviews.productId, schema.products.id))
+      .orderBy(sql`${schema.productReviews.createdAt} DESC`);
+    } catch (error) {
+      console.error('❌ Erro ao buscar todas as avaliações:', error);
+      throw error;
+    }
+  }
+
+  async getProductReviews(productId: string): Promise<any[]> {
+    try {
+      return await db.select({
+        id: schema.productReviews.id,
+        productId: schema.productReviews.productId,
+        customerId: schema.productReviews.customerId,
+        orderId: schema.productReviews.orderId,
+        rating: schema.productReviews.rating,
+        title: schema.productReviews.title,
+        comment: schema.productReviews.comment,
+        isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
+        isApproved: schema.productReviews.isApproved,
+        createdAt: schema.productReviews.createdAt,
+        // Join com customer para pegar nome
+        customerName: schema.customers.name,
+        customerEmail: schema.customers.email,
+      })
+      .from(schema.productReviews)
+      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
+      .where(and(
+        eq(schema.productReviews.productId, productId),
+        eq(schema.productReviews.isApproved, true)
+      ))
+      .orderBy(sql`${schema.productReviews.createdAt} DESC`);
+    } catch (error) {
+      console.error('❌ Erro ao buscar avaliações do produto:', error);
+      throw error;
+    }
+  }
+
+  async createProductReview(review: any): Promise<any> {
+    try {
+      const result = await db.insert(schema.productReviews).values({
+        ...review,
+        createdAt: new Date(),
+      }).returning();
+      
+      // Após criar a review, atualizar os campos rating e reviewCount do produto
+      await this.updateProductRatingAndCount(review.productId);
+      
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao criar avaliação:', error);
+      throw error;
+    }
+  }
+
+  async updateProductReview(id: string, review: any): Promise<any> {
+    try {
+      const result = await db.update(schema.productReviews)
+        .set(review)
+        .where(eq(schema.productReviews.id, id))
+        .returning();
+      
+      // Se existe resultado, atualizar rating do produto
+      if (result.length > 0) {
+        await this.updateProductRatingAndCount(result[0].productId);
+      }
+      
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao atualizar avaliação:', error);
+      throw error;
+    }
+  }
+
+  async deleteProductReview(id: string): Promise<boolean> {
+    try {
+      // Primeiro buscar o productId antes de deletar
+      const reviewToDelete = await db.select({ productId: schema.productReviews.productId })
+        .from(schema.productReviews)
+        .where(eq(schema.productReviews.id, id))
+        .limit(1);
+      
+      const result = await db.delete(schema.productReviews)
+        .where(eq(schema.productReviews.id, id))
+        .returning();
+      
+      // Se deletou com sucesso, atualizar rating do produto
+      if (result.length > 0 && reviewToDelete.length > 0) {
+        await this.updateProductRatingAndCount(reviewToDelete[0].productId);
+      }
+      
+      return result.length > 0;
+    } catch (error) {
+      console.error('❌ Erro ao deletar avaliação:', error);
+      throw error;
+    }
+  }
+
+  async getProductReview(id: string): Promise<any> {
+    try {
+      const result = await db.select({
+        id: schema.productReviews.id,
+        productId: schema.productReviews.productId,
+        customerId: schema.productReviews.customerId,
+        orderId: schema.productReviews.orderId,
+        rating: schema.productReviews.rating,
+        title: schema.productReviews.title,
+        comment: schema.productReviews.comment,
+        isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
+        isApproved: schema.productReviews.isApproved,
+        createdAt: schema.productReviews.createdAt,
+        // Join com customer para pegar nome
+        customerName: schema.customers.name,
+        customerEmail: schema.customers.email,
+        // Join com product para pegar nome do produto
+        productName: schema.products.name,
+      })
+      .from(schema.productReviews)
+      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
+      .leftJoin(schema.products, eq(schema.productReviews.productId, schema.products.id))
+      .where(eq(schema.productReviews.id, id))
+      .limit(1);
+      
+      return result[0];
+    } catch (error) {
+      console.error('❌ Erro ao buscar avaliação:', error);
+      throw error;
+    }
+  }
+
+  // Método auxiliar para atualizar rating e reviewCount do produto automaticamente
+  private async updateProductRatingAndCount(productId: string): Promise<void> {
+    try {
+      // Buscar todas as avaliações aprovadas do produto
+      const reviews = await db.select({
+        rating: schema.productReviews.rating
+      })
+      .from(schema.productReviews)
+      .where(and(
+        eq(schema.productReviews.productId, productId),
+        eq(schema.productReviews.isApproved, true)
+      ));
+      
+      let averageRating = 0;
+      const reviewCount = reviews.length;
+      
+      if (reviewCount > 0) {
+        const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+        averageRating = Math.round((totalRating / reviewCount) * 10) / 10; // Arredondar para 1 casa decimal
+      }
+      
+      // Atualizar o produto com os novos valores
+      await db.update(schema.products)
+        .set({
+          rating: averageRating.toString(),
+          reviewCount: reviewCount,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.products.id, productId));
+      
+      console.log(`✅ Rating atualizado para produto ${productId}: ${averageRating} (${reviewCount} avaliações)`);
+    } catch (error) {
+      console.error('❌ Erro ao atualizar rating do produto:', error);
       throw error;
     }
   }

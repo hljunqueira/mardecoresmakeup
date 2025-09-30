@@ -42,12 +42,35 @@ import { PDFGenerator, formatCurrency } from "@/lib/pdf-utils";
 import type { Product, Customer, CreditAccount } from "@shared/schema";
 
 interface ReportData {
+  // Métricas gerais
   totalSales: number;
   totalRevenue: number;
   totalProducts: number;
+  
+  // Detalhamento por tipo de venda
+  manualSales: number;
+  manualRevenue: number;
+  orderSales: number;
+  orderRevenue: number;
+  
+  // Pedidos por tipo de pagamento
+  cashOrders: number;
+  creditOrders: number;
+  
+  // Crediário
+  totalCredit: number;
+  totalPaid: number;
+  pendingCredit: number;
+  creditAccounts: number;
+  activeAccounts: number;
+  
+  // Reservas (sistema antigo)
   totalReservations?: number;
   activeReservations?: number;
+  soldReservations?: number;
   reservedValue?: number;
+  
+  // Análises
   topProducts: Array<{
     product: Product;
     sales: number;
@@ -57,8 +80,25 @@ interface ReportData {
     month: string;
     sales: number;
     revenue: number;
+    manualSales?: number;
+    orderSales?: number;
+    manualRevenue?: number;
+    orderRevenue?: number;
   }>;
   lowStockProducts: Product[];
+  
+  // Outros
+  activeCoupons: number;
+  period: number;
+  
+  // Metadados
+  generatedAt?: Date;
+  dataIntegration?: {
+    manualSalesIncluded: boolean;
+    ordersIncluded: boolean;
+    creditAccountsIncluded: boolean;
+    reservationsIncluded: boolean;
+  };
 }
 
 export default function AdminReports() {
@@ -96,6 +136,12 @@ export default function AdminReports() {
 
   const { data: customers } = useQuery<Customer[]>({
     queryKey: ["/api/admin/customers"],
+    enabled: isAuthenticated,
+  });
+
+  // Query para buscar produtos (necessário para cálculos de margem)
+  const { data: products } = useQuery<Product[]>({
+    queryKey: ["/api/admin/products"],
     enabled: isAuthenticated,
   });
 
@@ -540,6 +586,67 @@ export default function AdminReports() {
                 )}
               </div>
 
+              {/* Métricas Detalhadas por Fonte de Venda - NOVA SEÇÃO */}
+              {reportData?.dataIntegration?.ordersIncluded && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 p-6 rounded-lg border border-blue-200 dark:border-blue-800">
+                  <div className="flex items-center mb-4">
+                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center mr-3">
+                      <ShoppingCart className="h-4 w-4 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-blue-700 dark:text-blue-300">Sistema Integrado de Vendas</h3>
+                      <p className="text-sm text-blue-600 dark:text-blue-400">Dados combinados: vendas manuais + pedidos + crediário</p>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                      <div className="text-2xl font-bold text-green-600">{reportData?.manualSales || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Vendas Manuais</div>
+                      <div className="text-xs text-green-500">{formatCurrency(reportData?.manualRevenue || 0)}</div>
+                    </div>
+                    
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                      <div className="text-2xl font-bold text-blue-600">{reportData?.orderSales || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Pedidos</div>
+                      <div className="text-xs text-blue-500">{formatCurrency(reportData?.orderRevenue || 0)}</div>
+                    </div>
+                    
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                      <div className="text-2xl font-bold text-purple-600">{reportData?.cashOrders || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Pedidos à Vista</div>
+                      <div className="text-xs text-purple-500">PIX/Cartão/Dinheiro</div>
+                    </div>
+                    
+                    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg border">
+                      <div className="text-2xl font-bold text-orange-600">{reportData?.creditOrders || 0}</div>
+                      <div className="text-sm text-gray-600 dark:text-gray-400">Pedidos Crediário</div>
+                      <div className="text-xs text-orange-500">{formatCurrency(reportData?.totalCredit || 0)} total</div>
+                    </div>
+                  </div>
+                  
+                  {reportData?.dataIntegration && (
+                    <div className="mt-4 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                      <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">Fontes de Dados Integradas:</div>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        {reportData.dataIntegration.manualSalesIncluded && (
+                          <span className="px-2 py-1 bg-green-200 text-green-800 rounded">Vendas Manuais</span>
+                        )}
+                        {reportData.dataIntegration.ordersIncluded && (
+                          <span className="px-2 py-1 bg-blue-200 text-blue-800 rounded">Sistema de Pedidos</span>
+                        )}
+                        {reportData.dataIntegration.creditAccountsIncluded && (
+                          <span className="px-2 py-1 bg-orange-200 text-orange-800 rounded">Contas de Crediário</span>
+                        )}
+                        {reportData.dataIntegration.reservationsIncluded && (
+                          <span className="px-2 py-1 bg-purple-200 text-purple-800 rounded">Reservas (Sistema Antigo)</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Gráficos e Análises de Vendas */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Análise Mensal Avançada */}
@@ -797,49 +904,108 @@ export default function AdminReports() {
                               </CardHeader>
                               <CardContent>
                                 {(() => {
-                                  // Simulação de dados de margem baseado nos produtos
-                                  const averageMargin = 65; // Margem média estimada para cosméticos
-                                  const totalRevenue = reportData?.totalRevenue || 394.90;
-                                  const estimatedCost = totalRevenue * (1 - averageMargin / 100);
-                                  const estimatedProfit = totalRevenue - estimatedCost;
+                                  // Cálculo de margem baseado em TODOS os produtos do catálogo
+                                  // Comparando preço original (custo) com preço de venda
+                                  
+                                  let totalCost = 0;
+                                  let totalSaleValue = 0;
+                                  let productsWithMargin = 0;
+                                  
+                                  // Analisar todos os produtos para calcular margem real
+                                  products?.forEach(product => {
+                                    const salePrice = parseFloat(product.price);
+                                    const originalPrice = parseFloat(product.originalPrice?.toString() || "0");
+                                    
+                                    if (originalPrice > 0 && salePrice > 0) {
+                                      totalCost += originalPrice;
+                                      totalSaleValue += salePrice;
+                                      productsWithMargin++;
+                                    }
+                                  });
+                                  
+                                  // Calcular margem real baseada no catálogo
+                                  const realMargin = totalCost > 0 ? ((totalSaleValue - totalCost) / totalSaleValue) * 100 : 0;
+                                  const potentialProfit = totalSaleValue - totalCost;
+                                  
+                                  // Projetação baseada no estoque atual
+                                  const stockValue = products?.reduce((sum, product) => {
+                                    const salePrice = parseFloat(product.price);
+                                    const stock = product.stock || 0;
+                                    return sum + (salePrice * stock);
+                                  }, 0) || 0;
+                                  
+                                  const stockCost = products?.reduce((sum, product) => {
+                                    const originalPrice = parseFloat(product.originalPrice?.toString() || "0");
+                                    const stock = product.stock || 0;
+                                    return sum + (originalPrice * stock);
+                                  }, 0) || 0;
+                                  
+                                  const potentialStockProfit = stockValue - stockCost;
                                   
                                   return (
                                     <div className="space-y-4">
                                       <div className="p-4 bg-green-50 rounded-lg">
                                         <div className="text-2xl font-bold text-green-600">
-                                          {averageMargin}%
+                                          {realMargin.toFixed(1)}%
                                         </div>
-                                        <div className="text-sm text-green-600">Margem média estimada</div>
+                                        <div className="text-sm text-green-600">Margem real do catálogo</div>
                                       </div>
                                       
                                       <div className="space-y-3">
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Receita bruta:</span>
-                                          <span className="font-medium">{formatCurrency(totalRevenue)}</span>
+                                          <span className="text-sm">Valor total de venda:</span>
+                                          <span className="font-medium">{formatCurrency(totalSaleValue)}</span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Custo estimado:</span>
-                                          <span className="font-medium text-red-600">{formatCurrency(estimatedCost)}</span>
+                                          <span className="text-sm">Custo total (original):</span>
+                                          <span className="font-medium text-red-600">{formatCurrency(totalCost)}</span>
                                         </div>
                                         <div className="flex justify-between items-center">
-                                          <span className="text-sm">Lucro estimado:</span>
-                                          <span className="font-medium text-green-600">{formatCurrency(estimatedProfit)}</span>
+                                          <span className="text-sm">Lucro potencial:</span>
+                                          <span className="font-medium text-green-600">{formatCurrency(potentialProfit)}</span>
                                         </div>
                                       </div>
                                       
                                       <div className="pt-3 border-t">
-                                        <div className="text-xs text-muted-foreground mb-2">Distribuição:</div>
+                                        <div className="text-xs text-muted-foreground mb-3">Projeção do Estoque Atual:</div>
+                                        <div className="space-y-2">
+                                          <div className="flex justify-between items-center text-sm">
+                                            <span>Valor em estoque:</span>
+                                            <span className="font-medium">{formatCurrency(stockValue)}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center text-sm">
+                                            <span>Custo do estoque:</span>
+                                            <span className="text-red-600">{formatCurrency(stockCost)}</span>
+                                          </div>
+                                          <div className="flex justify-between items-center text-sm font-medium">
+                                            <span>Lucro se vender tudo:</span>
+                                            <span className="text-green-600">{formatCurrency(potentialStockProfit)}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="pt-3 border-t">
+                                        <div className="text-xs text-muted-foreground mb-2">Distribuição da Margem:</div>
                                         <div className="space-y-2">
                                           <div className="flex items-center space-x-3">
                                             <div className="w-3 h-3 bg-green-500 rounded"></div>
                                             <span className="text-sm flex-1">Lucro</span>
-                                            <span className="text-sm font-medium">{averageMargin}%</span>
+                                            <span className="text-sm font-medium">{realMargin.toFixed(1)}%</span>
                                           </div>
                                           <div className="flex items-center space-x-3">
                                             <div className="w-3 h-3 bg-red-500 rounded"></div>
                                             <span className="text-sm flex-1">Custos</span>
-                                            <span className="text-sm font-medium">{100 - averageMargin}%</span>
+                                            <span className="text-sm font-medium">{(100 - realMargin).toFixed(1)}%</span>
                                           </div>
+                                        </div>
+                                        
+                                        <div className="mt-3 text-xs text-blue-600 bg-blue-50 rounded px-2 py-1">
+                                          <strong>Produtos analisados:</strong> {productsWithMargin} de {products?.length || 0} produtos
+                                          {productsWithMargin < (products?.length || 0) && (
+                                            <span className="block mt-1 text-amber-600">
+                                              ⚠️ {(products?.length || 0) - productsWithMargin} produtos sem preço original cadastrado
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
                                     </div>
@@ -986,7 +1152,17 @@ export default function AdminReports() {
                                 {formatCurrency(parseFloat(item.product.price))}
                               </Badge>
                               <div className="text-xs text-muted-foreground">
-                                Margem: ~65%
+                                {(() => {
+                                  const salePrice = parseFloat(item.product.price);
+                                  const originalPrice = parseFloat(item.product.originalPrice?.toString() || "0");
+                                  
+                                  if (originalPrice > 0 && salePrice > 0) {
+                                    const margin = ((salePrice - originalPrice) / salePrice) * 100;
+                                    return `Margem: ${margin.toFixed(1)}%`;
+                                  }
+                                  
+                                  return "Margem: N/D";
+                                })()}
                               </div>
                             </div>
                           </div>

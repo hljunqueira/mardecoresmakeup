@@ -15,6 +15,13 @@
       "when": 1758980501946,
       "tag": "0001_confused_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1759210140569,
+      "tag": "0002_rich_dragon_man",
+      "breakpoints": true
     }
   ]
 }
