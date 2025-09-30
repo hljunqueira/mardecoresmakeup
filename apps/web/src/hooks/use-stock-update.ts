@@ -268,7 +268,7 @@ export function useStockUpdate() {
             totalAmount: creditData.totalAmount,
             installments: 1,
             paymentFrequency: 'monthly',
-            nextPaymentDate: creditData.paymentDate,
+            nextPaymentDate: creditData.paymentDate.toISOString().split('T')[0], // Converter Date para string YYYY-MM-DD
             notes: `Conta criada automaticamente - ${creditData.productName}`,
           });
           
@@ -293,7 +293,7 @@ export function useStockUpdate() {
           customerName: `Cliente ID: ${creditData.customerId}`,
           quantity: creditData.quantity,
           unitPrice: creditData.unitPrice.toString(),
-          paymentDate: creditData.paymentDate,
+          paymentDate: creditData.paymentDate.toISOString(), // Converter Date para string ISO
           type: 'credit_account',
           creditAccountId: activeAccount.id,
           customerId: creditData.customerId,
@@ -342,7 +342,7 @@ export function useStockUpdate() {
           totalAmount: data.totalAmount,
           installments: 1,
           paymentFrequency: 'monthly',
-          nextPaymentDate: data.paymentDate,
+          nextPaymentDate: data.paymentDate.toISOString().split('T')[0], // Converter Date para string YYYY-MM-DD
           notes: `Conta criada automaticamente - ${data.productName}`,
         });
         
@@ -481,7 +481,7 @@ export function useStockUpdate() {
         customerName,
         quantity,
         unitPrice: unitPrice.toString(), // Decimal field expects string
-        paymentDate: new Date(paymentDate) // Timestamp field expects Date
+        paymentDate: new Date(paymentDate) // Timestamp field expects Date - mantenha como Date aqui pois é diferente do credit account
       });
 
       toast({
