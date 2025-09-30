@@ -8,7 +8,7 @@ import AdminSidebar from "@/components/layout/admin-sidebar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -213,11 +213,14 @@ export default function AdminCoupons() {
                   Adicionar Cupom
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-w-md" aria-describedby="coupon-form-description">
                 <DialogHeader>
                   <DialogTitle>
                     {editingCoupon ? "Editar Cupom" : "Novo Cupom"}
                   </DialogTitle>
+                  <DialogDescription id="coupon-form-description">
+                    {editingCoupon ? "Modifique as informações do cupom de desconto" : "Crie um novo cupom de desconto"}
+                  </DialogDescription>
                 </DialogHeader>
 
                 <Form {...form}>

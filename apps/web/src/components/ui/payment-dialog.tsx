@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -129,7 +129,7 @@ export default function PaymentDialog({ isOpen, onOpenChange, creditAccount, cus
   
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="payment-dialog-description">
         <DialogHeader className="pb-6">
           <DialogTitle className="text-2xl font-bold text-petrol-700 flex items-center">
             <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center mr-3">
@@ -137,6 +137,9 @@ export default function PaymentDialog({ isOpen, onOpenChange, creditAccount, cus
             </div>
             Registrar Pagamento
           </DialogTitle>
+          <DialogDescription id="payment-dialog-description">
+            Registre um pagamento da conta de crediário do cliente
+          </DialogDescription>
         </DialogHeader>
         
         {/* Informações da Conta */}

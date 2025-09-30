@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +49,9 @@ const transactionSchema = z.object({
   type: z.enum(["income", "expense"], { required_error: "Tipo é obrigatório" }),
   category: z.string().min(1, "Categoria é obrigatória"),
   description: z.string().min(1, "Descrição é obrigatória"),
-  amount: z.string().min(1, "Valor é obrigatório"),
+  amount: z.string().min(1, "Valor é obrigatório").refine((val) => !isNaN(parseFloat(val)) && parseFloat(val) > 0, {
+    message: "Valor deve ser um número positivo",
+  }),
   date: z.string().optional(),
   status: z.string().default("pending"),
   dueDate: z.string().optional(),
@@ -137,6 +139,7 @@ export default function AdminFinancial() {
     mutationFn: async (data: TransactionForm) => {
       const payload = {
         ...data,
+        // amount já é string, não precisa converter
         date: data.date ? new Date(data.date).toISOString() : undefined,
         dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
       };
@@ -166,6 +169,7 @@ export default function AdminFinancial() {
     mutationFn: async ({ id, data }: { id: string; data: TransactionForm }) => {
       const payload = {
         ...data,
+        // amount já é string, não precisa converter
         date: data.date ? new Date(data.date).toISOString() : undefined,
         dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
       };
@@ -304,7 +308,7 @@ export default function AdminFinancial() {
       type: transaction.type as "income" | "expense",
       category: transaction.category,
       description: transaction.description,
-      amount: transaction.amount,
+      amount: transaction.amount.toString(), // Converter number para string para o formulário
       date: transaction.date ? new Date(transaction.date).toISOString().split('T')[0] : "",
       status: transaction.status || "pending",
       dueDate: transaction.dueDate ? new Date(transaction.dueDate).toISOString().split('T')[0] : "",
@@ -512,11 +516,14 @@ export default function AdminFinancial() {
                           Nova Transação
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-md">
+                      <DialogContent className="max-w-md" aria-describedby="transaction-form-description">
                         <DialogHeader>
                           <DialogTitle>
                             {editingTransaction ? "Editar Transação" : "Nova Transação"}
                           </DialogTitle>
+                          <DialogDescription id="transaction-form-description">
+                            {editingTransaction ? "Modifique os dados da transação financeira" : "Registre uma nova movimentação financeira"}
+                          </DialogDescription>
                         </DialogHeader>
 
                         <Form {...transactionForm}>
@@ -730,11 +737,14 @@ export default function AdminFinancial() {
                           Novo Fornecedor
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="max-w-md">
+                      <DialogContent className="max-w-md" aria-describedby="supplier-form-description">
                         <DialogHeader>
                           <DialogTitle>
                             {editingSupplier ? "Editar Fornecedor" : "Novo Fornecedor"}
                           </DialogTitle>
+                          <DialogDescription id="supplier-form-description">
+                            {editingSupplier ? "Altere as informações do fornecedor" : "Cadastre um novo fornecedor"}
+                          </DialogDescription>
                         </DialogHeader>
 
                         <Form {...supplierForm}>

@@ -14,7 +14,7 @@ import { ReservationManageModal } from "@/components/ui/reservation-manage-modal
 import PaymentDialog from "@/components/ui/payment-dialog";
 import WhatsAppDialog from "@/components/ui/whatsapp-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -843,11 +843,14 @@ export default function AdminReservationsAndCredit() {
                         Novo Cliente
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-md">
+                    <DialogContent className="sm:max-w-md" aria-describedby="customer-form-description">
                       <DialogHeader>
                         <DialogTitle>
                           {editingCustomer ? 'Editar Cliente' : 'Novo Cliente'}
                         </DialogTitle>
+                        <DialogDescription id="customer-form-description">
+                          {editingCustomer ? 'Altere as informações do cliente' : 'Cadastre um novo cliente no sistema'}
+                        </DialogDescription>
                       </DialogHeader>
                       <Form {...customerForm}>
                         <form onSubmit={customerForm.handleSubmit(editingCustomer ? handleUpdateCustomer : handleCreateCustomer)} className="space-y-4">
@@ -971,11 +974,14 @@ export default function AdminReservationsAndCredit() {
 
           {/* Dialog para Nova Conta de Crediário */}
           <Dialog open={isCreditAccountDialogOpen} onOpenChange={setIsCreditAccountDialogOpen}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md" aria-describedby="credit-account-form-description">
               <DialogHeader>
                 <DialogTitle>
                   {editingCreditAccount ? 'Editar Conta de Crediário' : 'Nova Conta de Crediário'}
                 </DialogTitle>
+                <DialogDescription id="credit-account-form-description">
+                  {editingCreditAccount ? 'Modifique os dados da conta de crediário' : 'Crie uma nova conta de crediário para o cliente'}
+                </DialogDescription>
               </DialogHeader>
               <Form {...creditAccountForm}>
                 <form onSubmit={creditAccountForm.handleSubmit(editingCreditAccount ? handleUpdateCreditAccount : handleCreateCreditAccount)} className="space-y-4">
@@ -1106,12 +1112,15 @@ export default function AdminReservationsAndCredit() {
 
           {/* Dialog de Confirmação de Exclusão de Cliente */}
           <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md" aria-describedby="delete-customer-description">
               <DialogHeader>
                 <DialogTitle className="flex items-center space-x-2 text-red-600">
                   <AlertTriangle className="h-5 w-5" />
                   <span>Confirmar Exclusão</span>
                 </DialogTitle>
+                <DialogDescription id="delete-customer-description" className="text-red-600">
+                  Esta ação não pode ser desfeita
+                </DialogDescription>
               </DialogHeader>
               <div className="space-y-4">
                 <p className="text-gray-700">
@@ -1171,12 +1180,15 @@ export default function AdminReservationsAndCredit() {
       
       {/* Delete Credit Account Dialog */}
       <Dialog open={isDeleteAccountDialogOpen} onOpenChange={setIsDeleteAccountDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md" aria-describedby="delete-account-description">
           <DialogHeader>
             <DialogTitle className="flex items-center text-red-700">
               <AlertTriangle className="h-5 w-5 mr-2" />
               Confirmar Exclusão
             </DialogTitle>
+            <DialogDescription id="delete-account-description">
+              Esta ação irá excluir permanentemente a conta de crediário e todos os dados relacionados
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="p-4 bg-red-50 border border-red-200 rounded-md">

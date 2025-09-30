@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -127,7 +127,7 @@ _Mar de Cores - Juntos encontramos a solução!_ 💙`,
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto" aria-describedby="whatsapp-dialog-description">
         <DialogHeader className="pb-6">
           <DialogTitle className="text-2xl font-bold text-green-700 flex items-center">
             <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-green-600 rounded-lg flex items-center justify-center mr-3">
@@ -135,6 +135,9 @@ _Mar de Cores - Juntos encontramos a solução!_ 💙`,
             </div>
             Enviar WhatsApp
           </DialogTitle>
+          <DialogDescription id="whatsapp-dialog-description">
+            Envie mensagens personalizadas para o cliente via WhatsApp sobre a conta de crediário
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

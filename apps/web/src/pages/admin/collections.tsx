@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
@@ -196,11 +196,14 @@ export default function AdminCollections() {
                   Adicionar Lista
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby="collection-form-description">
                 <DialogHeader>
                   <DialogTitle>
                     {editingCollection ? "Editar Lista" : "Nova Lista"}
                   </DialogTitle>
+                  <DialogDescription id="collection-form-description">
+                    {editingCollection ? "Modifique os produtos da lista" : "Crie uma nova lista de produtos para promoção"}
+                  </DialogDescription>
                 </DialogHeader>
 
                 <Form {...form}>

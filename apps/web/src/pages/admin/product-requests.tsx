@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -138,9 +138,12 @@ function ProductRequestCard({ request, onUpdateStatus, onDelete }: {
                 Gerenciar
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent aria-describedby="manage-request-description">
               <DialogHeader>
                 <DialogTitle>Gerenciar Solicitação</DialogTitle>
+                <DialogDescription id="manage-request-description">
+                  Altere o status e adicione observações sobre esta solicitação
+                </DialogDescription>
               </DialogHeader>
               
               <div className="space-y-4">

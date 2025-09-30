@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -92,7 +92,7 @@ export default function CreditReportsDialog({ isOpen, onOpenChange }: CreditRepo
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" aria-describedby="credit-reports-description">
         <DialogHeader className="pb-6">
           <DialogTitle className="text-2xl font-bold text-petrol-700 flex items-center">
             <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mr-3">
@@ -100,6 +100,9 @@ export default function CreditReportsDialog({ isOpen, onOpenChange }: CreditRepo
             </div>
             Relatórios de Crediário
           </DialogTitle>
+          <DialogDescription id="credit-reports-description">
+            Visualize relatórios detalhados das contas de crediário, incluindo resumos financeiros e análises de clientes
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
