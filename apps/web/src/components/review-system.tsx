@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 
 interface ReviewFormProps {
@@ -32,6 +33,7 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
   const [comment, setComment] = useState('');
   const [recommendation, setRecommendation] = useState<'sim' | 'nao' | ''>('');
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const submitReviewMutation = useMutation({
     mutationFn: async (reviewData: any) => {
@@ -63,15 +65,24 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
       queryClient.invalidateQueries({ queryKey: [`/api/products/${productId}/reviews`] });
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       
-      // Mensagem mais descontraída
-      alert('🎉 Sua avaliação foi enviada com sucesso! \n😊 Obrigado por compartilhar sua experiência conosco!');
+      // Toast de sucesso elegante
+      toast({
+        title: "🎉 Avaliação enviada com sucesso!",
+        description: "😊 Obrigado por compartilhar sua experiência conosco!",
+        duration: 5000,
+      });
       
       if (onReviewSubmitted) {
         onReviewSubmitted();
       }
     },
     onError: (error) => {
-      alert('Erro ao enviar avaliação. Tente novamente.');
+      toast({
+        title: "❌ Erro ao enviar avaliação",
+        description: "Não foi possível enviar sua avaliação. Tente novamente.",
+        variant: "destructive",
+        duration: 5000,
+      });
       console.error('Erro ao enviar avaliação:', error);
     }
   });
@@ -80,17 +91,32 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
     e.preventDefault();
     
     if (rating === 0) {
-      alert('Por favor, selecione uma nota de 1 a 5 estrelas');
+      toast({
+        title: "⭐ Avaliação necessária",
+        description: "Por favor, selecione uma nota de 1 a 5 estrelas",
+        variant: "destructive",
+        duration: 4000,
+      });
       return;
     }
     
     if (!customerName.trim()) {
-      alert('Por favor, informe seu nome');
+      toast({
+        title: "📝 Nome obrigatório",
+        description: "Por favor, informe seu nome para identificar sua avaliação",
+        variant: "destructive",
+        duration: 4000,
+      });
       return;
     }
 
     if (!recommendation) {
-      alert('Por favor, informe se você recomendaria este produto');
+      toast({
+        title: "🤔 Recomendação necessária",
+        description: "Por favor, informe se você recomendaria este produto",
+        variant: "destructive",
+        duration: 4000,
+      });
       return;
     }
 
