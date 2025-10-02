@@ -58,6 +58,7 @@ export function OrderWhatsAppDialog({
   const [isPreviewMode, setIsPreviewMode] = useState(true);
   const [isCopied, setIsCopied] = useState(false);
   const [messageSentHistory, setMessageSentHistory] = useState<Date[]>([]);
+  const [editedMessage, setEditedMessage] = useState<string>(""); // Novo estado para mensagem editada
 
   // E-mail PIX para crediário
   const PIX_EMAIL = "mardecoresmakeup@gmail.com";
@@ -75,6 +76,15 @@ export function OrderWhatsAppDialog({
       setMessageType(order.status === 'pending' ? 'pending_order' : 'cash_sale');
     }
   }, [order.paymentMethod, order.status]);
+  
+  // Atualizar mensagem editada quando o tipo de mensagem mudar
+  useEffect(() => {
+    if (messageType !== 'custom') {
+      setEditedMessage(''); // Resetar mensagem editada para templates
+    }
+    // Sempre sair do modo de edição quando trocar de tipo
+    setIsPreviewMode(true);
+  }, [messageType]);
 
   const formatCurrency = (value: string | number) => {
     const numValue = typeof value === 'string' ? parseFloat(value) : value;
@@ -388,7 +398,10 @@ Todos os produtos já são seus.
     }
   ];
 
-  const currentMessage = messageTemplates[messageType];
+  // Determinar a mensagem atual baseada no estado de edição
+  const currentMessage = messageType === 'custom' 
+    ? customMessage 
+    : (editedMessage || messageTemplates[messageType]);
 
   const copyMessage = () => {
     navigator.clipboard.writeText(currentMessage);
@@ -574,18 +587,40 @@ Todos os produtos já são seus.
 
           {/* Toggle entre Preview e Edição */}
           <div className="flex justify-between items-center">
-            <Label className="text-base font-medium text-gray-700">
-              Preview da Mensagem:
-            </Label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsPreviewMode(!isPreviewMode)}
-              className="border-green-300 text-green-700 hover:bg-green-50"
-            >
-              <Edit3 className="h-4 w-4 mr-2" />
-              {isPreviewMode ? 'Modo Edição' : 'Modo Preview'}
-            </Button>
+            <div className="flex items-center space-x-3">
+              <Label className="text-base font-medium text-gray-700">
+                Preview da Mensagem:
+              </Label>
+              {/* Indicador de mensagem editada */}
+              {editedMessage && messageType !== 'custom' && (
+                <Badge variant="outline" className="border-orange-300 text-orange-700 bg-orange-50">
+                  <Edit3 className="h-3 w-3 mr-1" />
+                  Editado
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              {/* Botão para resetar edições */}
+              {editedMessage && messageType !== 'custom' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditedMessage('')}
+                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                >
+                  Resetar
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsPreviewMode(!isPreviewMode)}
+                className="border-green-300 text-green-700 hover:bg-green-50"
+              >
+                <Edit3 className="h-4 w-4 mr-2" />
+                {isPreviewMode ? 'Modo Edição' : 'Modo Preview'}
+              </Button>
+            </div>
           </div>
 
           {/* Preview/Edição da Mensagem */}
@@ -613,16 +648,17 @@ Todos os produtos já são seus.
                 </div>
               ) : (
                 <Textarea
-                  value={messageType === 'custom' ? customMessage : messageTemplates[messageType]}
+                  value={messageType === 'custom' ? customMessage : (editedMessage || messageTemplates[messageType])}
                   onChange={(e) => {
                     if (messageType === 'custom') {
                       setCustomMessage(e.target.value);
                     } else {
-                      // Para templates pré-definidos, podemos criar uma versão editável
-                      messageTemplates[messageType] = e.target.value;
+                      // Para templates pré-definidos, usar estado editedMessage
+                      setEditedMessage(e.target.value);
                     }
                   }}
                   className="min-h-[200px] border-green-200 focus:border-green-400 font-mono text-sm"
+                  placeholder={messageType === 'custom' ? "Digite sua mensagem personalizada aqui..." : "Edite o template da mensagem..."}
                 />
               )}
             </CardContent>
