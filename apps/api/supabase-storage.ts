@@ -233,15 +233,15 @@ export class SupabaseStorage implements IStorage {
   private async tryAlternativeRegions(): Promise<void> {
     const regions = ['us-east-1', 'sa-east-1', 'eu-west-1', 'us-east-2', 'ap-southeast-1'];
     
-    // Tentar extrair da URL original OU da URL já convertida do pooler
-    let urlMatch = process.env.DATABASE_URL?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
+    // Tentar extrair da URL original (limpa) OU da URL já convertida do pooler
+    let urlMatch = rawDatabaseUrl?.match(/postgresql:\/\/([^:]+):([^@]+)@db\.([^.]+)\.supabase\.co:(\d+)\/(.+)/);
     
     // Se não conseguiu extrair da URL direta, tentar da URL do pooler
     if (!urlMatch) {
       urlMatch = connectionUrl.match(/postgresql:\/\/postgres\.([^:]+):([^@]+)@aws-0-[^.]+\.pooler\.supabase\.com:(\d+)\/(.+)/);
       if (!urlMatch) {
         console.error('❌ Não foi possível extrair informações da URL de conexão');
-        console.error('   DATABASE_URL:', process.env.DATABASE_URL?.replace(/:([^:@\/]+)@/, ':***@'));
+        console.error('   DATABASE_URL (raw):', rawDatabaseUrl?.replace(/:([^:@\/]+)@/, ':***@'));
         console.error('   Connection URL:', connectionUrl.replace(/:([^:@\/]+)@/, ':***@'));
         throw new Error('Não foi possível extrair informações da DATABASE_URL');
       }

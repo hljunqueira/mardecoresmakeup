@@ -15,7 +15,15 @@ import * as schema from '@shared/schema';
 import { eq, sql, and } from 'drizzle-orm';
 
 // Inicializar conexão do banco para verificação de dependências
-const connectionUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+let rawConnectionUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+
+// Limpar URL se contiver prefixo incorreto (mesmo processo do supabase-storage.ts)
+let connectionUrl = rawConnectionUrl.trim();
+if (connectionUrl.startsWith('DATABASE_URL=')) {
+  console.log('⚠️ [ROUTES] Removendo prefixo DATABASE_URL= da connectionUrl');
+  connectionUrl = connectionUrl.substring('DATABASE_URL='.length).trim();
+}
+
 const client = postgres(connectionUrl);
 const db = drizzle(client, { schema });
 
