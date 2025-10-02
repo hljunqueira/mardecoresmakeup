@@ -72,7 +72,7 @@ export default function Footer() {
           <p className="text-gray-500">© 2025 {BRAND_NAME}. Todos os direitos reservados.</p>
           <p className="text-gray-400 mt-1">
             Desenvolvido por 
-            <a href="https://hlj.dev" target="_blank" rel="noopener noreferrer" className="underline hover:text-petrol-600"> Hlj.dev</a>
+            <a href="https://www.instagram.com/hlj.dev" target="_blank" rel="noopener noreferrer" className="underline hover:text-petrol-600"> Hlj.dev</a>
           </p>
         </div>
       </div>
