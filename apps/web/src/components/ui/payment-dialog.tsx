@@ -76,6 +76,26 @@ export default function PaymentDialog({ isOpen, onOpenChange, creditAccount, cus
       
       const accountResponse = await apiRequest("PUT", `/api/admin/credit-accounts/${creditAccount.id}`, updatedAccountData);
       
+      // 🎯 NOVO FLUXO: Se a conta foi quitada, finalizar automaticamente as reservas
+      if (willBePaidOff) {
+        console.log('🎉 Conta quitada! Iniciando finalização automática das reservas...');
+        
+        try {
+          const finalizationResponse = await apiRequest("POST", `/api/admin/credit-accounts/${creditAccount.id}/finalize-reservations`, {});
+          const finalizationResult = await finalizationResponse.json();
+          console.log('✅ Finalização automática concluída:', finalizationResult);
+          
+          // Mostrar toast de sucesso sobre a finalização automática
+          if (finalizationResult.success && finalizationResult.reservationsProcessed > 0) {
+            console.log('🎆 Exibindo notificação de finalização automática');
+            // Toast será mostrado via onSuccess
+          }
+        } catch (finalizationError) {
+          console.error('❌ Erro na finalização automática:', finalizationError);
+          // Não falha o pagamento, apenas loga o erro
+        }
+      }
+      
       // 3. Atualizar o totalSpent do cliente
       const currentTotalSpent = parseFloat(customer.totalSpent?.toString() || "0");
       const newTotalSpent = currentTotalSpent + paymentData.amount;
@@ -86,9 +106,21 @@ export default function PaymentDialog({ isOpen, onOpenChange, creditAccount, cus
       
       return { payment: paymentResponse, account: accountResponse };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidar todas as queries relacionadas
       queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      
+      // Mensagem de sucesso personalizada
+      if (willBePaidOff) {
+        console.log('🎆 Conta quitada! Produtos automaticamente reduzidos do estoque e vendas registradas.');
+      }
+      
       setPaymentAmount("");
       setNotes("");
       onOpenChange(false);

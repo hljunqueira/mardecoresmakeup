@@ -333,7 +333,7 @@ export type InsertSiteView = z.infer<typeof insertSiteViewSchema>;
 export const customers = pgTable('customers', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   name: text('name').notNull(),
-  email: text('email').unique().notNull(),
+  email: text('email').unique(), // Removido .notNull() para tornar opcional
   phone: text('phone'),
   dateOfBirth: text('date_of_birth'), // formato YYYY-MM-DD como string
   cpf: text('cpf').unique(),
@@ -442,7 +442,9 @@ export const productImages = pgTable('product_images', {
 export const productReviews = pgTable('product_reviews', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   productId: varchar('product_id').references(() => products.id, { onDelete: 'cascade' }).notNull(),
-  customerId: varchar('customer_id').references(() => customers.id, { onDelete: 'cascade' }).notNull(),
+  customerId: varchar('customer_id').references(() => customers.id, { onDelete: 'cascade' }), // opcional agora
+  customerName: text('customer_name'), // nome do avaliador (simplificado)
+  customerEmail: text('customer_email'), // email do avaliador (opcional)
   orderId: varchar('order_id').references(() => orders.id), // opcional: vincula à compra
   rating: integer('rating').notNull(), // 1 a 5
   title: text('title'),

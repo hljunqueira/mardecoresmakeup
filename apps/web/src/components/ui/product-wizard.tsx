@@ -68,6 +68,12 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
   });
 
   const handleFormSubmit = (data: ProductForm) => {
+    console.log('📝 SUBMIT do formulário acionado:', {
+      productName: data.name,
+      imagesCount: data.images?.length || 0,
+      timestamp: new Date().toISOString()
+    });
+    
     // Se a marca for "Outra", usar a marca customizada
     if (data.brand === "Outra" && data.customBrand) {
       data.brand = data.customBrand;
@@ -97,11 +103,18 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
   };
 
   const handleImageSelect = (imageUrl: string) => {
+    console.log('🖼️ Imagem selecionada:', imageUrl);
     const currentImages = form.getValues("images") || [];
     
     if (!currentImages.includes(imageUrl)) {
       const newImages = [...currentImages, imageUrl];
-      form.setValue("images", newImages, { shouldValidate: true });
+      form.setValue("images", newImages, { 
+        shouldValidate: true,
+        shouldDirty: true,
+        shouldTouch: true
+      });
+      
+      console.log('✅ Imagens atualizadas:', newImages);
       
       toast({
         title: "Imagem adicionada!",
@@ -115,6 +128,7 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
     }
     
     setIsImageSearchOpen(false);
+    console.log('🔒 Modal de busca fechado');
   };
 
   return (
@@ -390,7 +404,11 @@ export function ProductWizard({ onSubmit, onCancel, isLoading = false, editingPr
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setIsImageSearchOpen(true)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsImageSearchOpen(true);
+                  }}
                   className="flex items-center space-x-2"
                 >
                   <Search className="h-4 w-4" />

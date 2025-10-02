@@ -14,7 +14,7 @@ import AdminLogin from "@/pages/admin/login";
 import AdminDashboard from "@/pages/admin/dashboard";
 import AdminProducts from "@/pages/admin/products";
 import AdminOrders from "@/pages/admin/orders";
-import AdminReservations from "@/pages/admin/reservations";
+import AdminCrediario from "@/pages/admin/crediario";
 import AdminCollections from "@/pages/admin/collections";
 import AdminCoupons from "@/pages/admin/coupons";
 import AdminFinancial from "@/pages/admin/financial";
@@ -33,7 +33,7 @@ function Router() {
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/produtos" component={AdminProducts} />
       <Route path="/admin/pedidos" component={AdminOrders} />
-      <Route path="/admin/reservas" component={AdminReservations} />
+      <Route path="/admin/crediario" component={AdminCrediario} />
       <Route path="/admin/colecoes" component={AdminCollections} />
       <Route path="/admin/cupons" component={AdminCoupons} />
       <Route path="/admin/financeiro" component={AdminFinancial} />

@@ -20,9 +20,11 @@ import {
   CheckCircle,
   ArrowRight,
   BarChart3,
-  Plus
+  Plus,
+  CreditCard,
+  Receipt
 } from "lucide-react";
-import type { Product, FinancialTransaction, Reservation, Customer, CreditAccount } from "@shared/schema";
+import type { Product, FinancialTransaction, Reservation, Customer, CreditAccount, Order } from "@shared/schema";
 
 interface FinancialSummary {
   totalRevenue: number;
@@ -89,6 +91,23 @@ export default function AdminDashboard() {
     queryKey: ["/api/admin/credit-accounts"],
     enabled: isAuthenticated,
   });
+
+  // Query para orders - necessário para as métricas por método de pagamento
+  const { data: rawOrders, isLoading: ordersLoading } = useQuery<Order[]>({
+    queryKey: ["/api/admin/orders"],
+    enabled: isAuthenticated,
+  });
+
+  // Combinar dados de pedidos com clientes (similar ao orders.tsx)
+  const orders = (rawOrders?.map(order => {
+    const customer = customers?.find((c: Customer) => c.id === order.customerId);
+    return {
+      ...order,
+      customer,
+      customerName: order.customerName || customer?.name || null,
+      customerPhone: order.customerPhone || customer?.phone || null,
+    };
+  }) || []);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
@@ -199,89 +218,116 @@ export default function AdminDashboard() {
             </div>
           </div>
 
-          {/* Cards de Resumo Integrados - Crediário + Receitas + Produtos + Clientes */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+          {/* Cards de Resumo Principal - Alinhados com a página de Pedidos */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-10">
+            {/* Total de Receitas (PIX, Cartão, Dinheiro) */}
             <Card className="relative overflow-hidden bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-              <CardContent className="p-6 relative z-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-emerald-100 text-sm font-medium mb-1">Receitas Totais</p>
-                    {summaryLoading ? (
-                      <Skeleton className="h-8 w-24 mt-2 bg-emerald-400/20" />
-                    ) : (
-                      <>
-                        <p className="text-3xl font-bold text-white mb-1">
-                          {formatCurrency(financialSummary?.totalRevenue || 0)}
-                        </p>
-                        <p className="text-emerald-100 text-xs">
-                          {(financialSummary?.totalTransactions || 0)} transações
-                        </p>
-                      </>
-                    )}
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-emerald-100 text-sm font-medium mb-2">Total de Receitas</p>
+                    <p className="text-2xl font-bold text-white mb-1 leading-tight">
+                      {formatCurrency(
+                        orders
+                          .filter((o: any) => ['pix', 'cartao', 'dinheiro'].includes(o.paymentMethod) && o.status === 'completed')
+                          .reduce((sum: number, o: any) => sum + parseFloat(o.total?.toString() || '0'), 0)
+                      )}
+                    </p>
+                    <p className="text-emerald-100 text-xs">
+                      PIX, Cartão e Dinheiro
+                    </p>
                   </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <DollarSign className="h-7 w-7 text-white" />
+                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                    <DollarSign className="h-5 w-5 text-white" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
+            {/* Crediário (Valor Total) */}
             <Card className="relative overflow-hidden bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-              <CardContent className="p-6 relative z-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100 text-sm font-medium mb-1">Produtos</p>
-                    <p className="text-3xl font-bold text-white mb-2">{totalProducts}</p>
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-blue-100 text-sm font-medium mb-6">Crediário</p>
+                    <p className="text-2xl font-bold text-white mb-3 leading-tight">
+                      {formatCurrency(
+                        orders
+                          .filter((o: any) => o.paymentMethod === 'credit')
+                          .reduce((sum: number, o: any) => sum + parseFloat(o.total?.toString() || '0'), 0)
+                      )}
+                    </p>
+                    <p className="text-blue-100 text-xs">
+                      Valor total
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                    <CreditCard className="h-5 w-5 text-white" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Produtos (mantido igual) */}
+            <Card className="relative overflow-hidden bg-gradient-to-br from-violet-500 via-violet-600 to-violet-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-violet-100 text-sm font-medium mb-6">Produtos</p>
+                    <p className="text-2xl font-bold text-white mb-3 leading-tight">{totalProducts}</p>
                     <div className="flex items-center space-x-2">
                       <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
                         {activeProducts} ativos
                       </Badge>
                     </div>
                   </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <Package className="h-7 w-7 text-white" />
+                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                    <Package className="h-5 w-5 text-white" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="relative overflow-hidden bg-gradient-to-br from-violet-500 via-violet-600 to-violet-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
+            {/* Pedidos à Vista */}
+            <Card className="relative overflow-hidden bg-gradient-to-br from-green-500 via-green-600 to-green-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-              <CardContent className="p-6 relative z-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-violet-100 text-sm font-medium mb-1">Clientes & Crediário</p>
-                    <p className="text-3xl font-bold text-white mb-2">{totalCustomers}</p>
-                    <div className="flex items-center space-x-2">
-                      <Badge className="text-xs bg-white/20 text-white border-0 hover:bg-white/30">
-                        {activeCreditAccounts} contas ativas
-                      </Badge>
-                    </div>
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-green-100 text-sm font-medium mb-2">Pedidos à Vista</p>
+                    <p className="text-2xl font-bold text-white mb-1 leading-tight">
+                      {orders.filter((o: any) => o.paymentMethod !== 'credit').length}
+                    </p>
+                    <p className="text-green-100 text-xs">
+                      PIX, Cartão, Dinheiro
+                    </p>
                   </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <Users className="h-7 w-7 text-white" />
+                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                    <Receipt className="h-5 w-5 text-white" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
+            {/* Pedidos Crediário */}
             <Card className="relative overflow-hidden bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
               <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-              <CardContent className="p-6 relative z-10">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-amber-100 text-sm font-medium mb-1">Total Valor Crediário</p>
-                    <p className="text-3xl font-bold text-white mb-1">
-                      {formatCurrency(totalCreditLimit)}
+              <CardContent className="p-5 relative z-10">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-amber-100 text-sm font-medium mb-2">Pedidos Crediário</p>
+                    <p className="text-2xl font-bold text-white mb-1 leading-tight">
+                      {orders.filter((o: any) => o.paymentMethod === 'credit').length}
                     </p>
                     <p className="text-amber-100 text-xs">
-                      Ticket médio: {formatCurrency(averageTicket)}
+                      Contas ativas
                     </p>
                   </div>
-                  <div className="w-14 h-14 bg-white/15 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                    <TrendingUp className="h-7 w-7 text-white" />
+                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center ml-2 flex-shrink-0">
+                    <Users className="h-5 w-5 text-white" />
                   </div>
                 </div>
               </CardContent>
@@ -527,7 +573,7 @@ export default function AdminDashboard() {
                 </Button>
                 
                 <Button 
-                  onClick={() => setLocation("/admin/reservas")}
+                  onClick={() => setLocation("/admin/crediario")}
                   className="w-full justify-start bg-white border border-petrol-200 text-petrol-700 hover:bg-petrol-50 hover:border-petrol-300 transition-all duration-300"
                   variant="outline"
                 >
@@ -552,24 +598,40 @@ export default function AdminDashboard() {
                     Resumo Financeiro
                   </h4>
                   <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                      <span className="text-sm font-medium text-blue-700">A Receber (Crediário):</span>
+                      <div className="text-right">
+                        <span className="font-bold text-blue-600">
+                          {formatCurrency(
+                            orders
+                              .filter((o: any) => o.paymentMethod === 'credit')
+                              .reduce((sum: number, o: any) => sum + parseFloat(o.total?.toString() || '0'), 0)
+                          )}
+                        </span>
+                        <p className="text-xs text-blue-600">
+                          {orders.filter((o: any) => o.paymentMethod === 'credit').length} pedidos
+                        </p>
+                      </div>
+                    </div>
                     <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                      <span className="text-sm font-medium text-green-700">A Receber (Crediário):</span>
-                      <span className="font-bold text-green-600">
-                        {formatCurrency(totalCreditLimit)}
-                      </span>
+                      <span className="text-sm font-medium text-green-700">Recebido (PIX, Cartão, Dinheiro):</span>
+                      <div className="text-right">
+                        <span className="font-bold text-green-600">
+                          {formatCurrency(
+                            orders
+                              .filter((o: any) => ['pix', 'cartao', 'dinheiro'].includes(o.paymentMethod) && o.status === 'completed')
+                              .reduce((sum: number, o: any) => sum + parseFloat(o.total?.toString() || '0'), 0)
+                          )}
+                        </span>
+                        <p className="text-xs text-green-600">
+                          {orders.filter((o: any) => ['pix', 'cartao', 'dinheiro'].includes(o.paymentMethod) && o.status === 'completed').length} pedidos
+                        </p>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
                       <span className="text-sm font-medium text-red-700">A Pagar:</span>
                       <span className="font-bold text-red-600">
                         {formatCurrency(financialSummary?.pendingPayables || 0)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center p-3 bg-petrol-50 rounded-lg border border-petrol-200">
-                      <span className="text-sm font-bold text-petrol-700">Saldo:</span>
-                      <span className={`font-bold text-lg ${
-                        (financialSummary?.balance || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'
-                      }`}>
-                        {formatCurrency(financialSummary?.balance || 0)}
                       </span>
                     </div>
                   </div>

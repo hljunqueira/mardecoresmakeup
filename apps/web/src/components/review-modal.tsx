@@ -12,7 +12,12 @@ interface ReviewModalProps {
 }
 
 export default function ReviewModal({ isOpen, onClose, product }: ReviewModalProps) {
-  const [activeTab, setActiveTab] = useState<'read' | 'write'>('read');
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleReviewSubmitted = () => {
+    // Forçar atualização da lista de avaliações
+    setRefreshKey(prev => prev + 1);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -30,26 +35,6 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
               className="rounded-full"
             >
               <X className="h-4 w-4" />
-            </Button>
-          </div>
-          
-          {/* Tabs */}
-          <div className="flex gap-2 mt-4">
-            <Button
-              variant={activeTab === 'read' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('read')}
-              className="rounded-full"
-            >
-              Ver Avaliações
-            </Button>
-            <Button
-              variant={activeTab === 'write' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveTab('write')}
-              className="rounded-full"
-            >
-              Deixar Avaliação
             </Button>
           </div>
         </DialogHeader>
@@ -86,23 +71,25 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
           </div>
 
           {/* Content */}
-          <div className="overflow-y-auto max-h-[60vh]">
-            {activeTab === 'read' ? (
-              <div className="space-y-6">
-                <ReviewList productId={product.id} />
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <h3 className="text-lg font-semibold">Deixe sua avaliação</h3>
-                <ReviewForm 
-                  productId={product.id} 
-                  productName={product.name}
-                  onReviewSubmitted={() => {
-                    setActiveTab('read'); // Muda para aba de leitura após enviar
-                  }}
-                />
-              </div>
-            )}
+          <div className="overflow-y-auto max-h-[60vh] space-y-6">
+            {/* Formulário de Avaliação */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Deixe sua avaliação</h3>
+              <ReviewForm 
+                productId={product.id} 
+                productName={product.name}
+                onReviewSubmitted={handleReviewSubmitted}
+              />
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-gray-200" />
+
+            {/* Lista de Avaliações */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Avaliações dos Clientes</h3>
+              <ReviewList key={refreshKey} productId={product.id} />
+            </div>
           </div>
         </div>
       </DialogContent>

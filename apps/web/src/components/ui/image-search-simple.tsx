@@ -46,24 +46,37 @@ export function ImageSearch({
   const searchImages = async (query: string) => {
     if (!query.trim()) return;
     
+    console.log('🔍 Iniciando busca por imagens:', query);
     setIsLoading(true);
     try {
       // Busca direta na API sem qualquer modificação na query do usuário
-      const response = await fetch(`/api/images/search?q=${encodeURIComponent(query)}&count=50`);
+      const url = `/api/images/search?q=${encodeURIComponent(query)}&count=50`;
+      console.log('🌐 URL da requisição:', url);
+      
+      const response = await fetch(url);
       const data = await response.json();
+      
+      console.log('📊 Resposta da API:', {
+        ok: response.ok,
+        status: response.status,
+        success: data.success,
+        imagesCount: data.images?.length || 0
+      });
       
       if (!response.ok) {
         throw new Error(data.message || 'Erro na busca');
       }
       
       if (data.success && data.images && data.images.length > 0) {
+        console.log('✅ Imagens encontradas:', data.images.length);
         setImages(data.images);
       } else {
+        console.log('⚠️ Nenhuma imagem encontrada');
         setImages([]);
       }
       
     } catch (error) {
-      console.warn('Erro na busca:', error);
+      console.error('❌ Erro na busca:', error);
       setImages([]);
     } finally {
       setIsLoading(false);
@@ -76,6 +89,7 @@ export function ImageSearch({
   };
 
   const handleImageSelect = (image: UnsplashImage) => {
+    console.log('🔍 ImageSearch: Imagem selecionada:', image.urls.regular);
     onImageSelect(image.urls.regular);
     onClose();
     

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import AdminSidebar from "@/components/layout/admin-sidebar";
@@ -14,6 +14,8 @@ import { useOrderIntegration } from "@/hooks/use-order-integration";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NewOrderModal } from "@/components/ui/new-order-modal";
 import { OrderDetailsModal } from "@/components/ui/order-details-modal";
+import { OrderWhatsAppDialog } from "@/components/ui/order-whatsapp-dialog";
+import { AddPhoneDialog } from "@/components/ui/add-phone-dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,10 +44,9 @@ import {
   Plus,
   Phone,
   Mail,
-  TrendingUp,
-  Calendar,
   FileText,
-  Receipt
+  MessageCircle,
+  Loader2
 } from "lucide-react";
 import {
   Select,
@@ -75,6 +76,14 @@ export default function AdminOrders() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [orderType, setOrderType] = useState<'cash' | 'credit'>('cash');
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Estado para o modal do WhatsApp
+  const [isWhatsAppDialogOpen, setIsWhatsAppDialogOpen] = useState(false);
+  const [selectedOrderForWhatsApp, setSelectedOrderForWhatsApp] = useState<OrderWithCustomer | null>(null);
+  
+  // Estado para o modal de adicionar telefone
+  const [isAddPhoneDialogOpen, setIsAddPhoneDialogOpen] = useState(false);
+  const [selectedOrderForPhone, setSelectedOrderForPhone] = useState<OrderWithCustomer | null>(null);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -150,8 +159,9 @@ export default function AdminOrders() {
     return {
       ...order,
       customer,
-      customerName: customer?.name || null,
-      customerPhone: customer?.phone || null,
+      // Priorizar customerName do pedido, depois o nome do customer
+      customerName: order.customerName || customer?.name || null,
+      customerPhone: order.customerPhone || customer?.phone || null,
       dueDate: order.deliveryDate, // Usar deliveryDate como dueDate
     } as OrderWithCustomer;
   }) || []) as OrderWithCustomer[];
@@ -172,6 +182,24 @@ export default function AdminOrders() {
   const formatDateTime = (dateString: string | Date) => {
     const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
     return date.toLocaleString('pt-BR');
+  };
+
+  // Função para formatar número do pedido com prefixo baseado no tipo
+  const formatOrderNumber = (order: OrderWithCustomer) => {
+    const orderNumber = order.orderNumber || order.id;
+    
+    if (order.paymentMethod === 'credit') {
+      // Para crediário, usar prefixo CRE
+      const number = orderNumber.replace('PED', '').padStart(4, '0');
+      return `CRE${number}`;
+    } else {
+      // Para pedidos à vista, manter PED ou usar PED se não tiver
+      if (orderNumber.startsWith('PED')) {
+        return orderNumber;
+      } else {
+        return `PED${orderNumber.padStart(4, '0')}`;
+      }
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -202,21 +230,11 @@ export default function AdminOrders() {
     }
   };
 
-  // Cálculos do dashboard
-  const todayOrders = orders?.filter(order => {
-    const orderDate = new Date(order.createdAt || '');
-    const today = new Date();
-    return orderDate.toDateString() === today.toDateString();
-  }) || [];
-
-  const totalSalesToday = todayOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
-  const cashSalesToday = todayOrders
-    .filter(order => order.paymentMethod && ['pix', 'cartao', 'dinheiro'].includes(order.paymentMethod))
-    .reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
-  const creditSalesToday = todayOrders
-    .filter(order => order.paymentMethod === 'credit')
-    .reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
-  const pendingOrders = orders?.filter(order => order.status === 'pending').length || 0;
+  // Cálculos básicos para contadores
+  const allOrders = orders || [];
+  
+  // Pendentes - TODOS os pedidos
+  const pendingOrders = allOrders.filter(order => order.status === 'pending').length;
 
   const openNewOrderModal = (type: 'cash' | 'credit') => {
     setOrderType(type);
@@ -231,6 +249,64 @@ export default function AdminOrders() {
   const closeOrderDetails = () => {
     setSelectedOrderId(null);
     setIsOrderDetailsModalOpen(false);
+  };
+
+  // Função para abrir o modal do WhatsApp
+  const openWhatsAppDialog = (order: OrderWithCustomer) => {
+    const customerPhone = order.customerPhone || order.customer?.phone;
+    
+    if (!customerPhone) {
+      // Se não tem telefone, abrir modal para adicionar
+      setSelectedOrderForPhone(order);
+      setIsAddPhoneDialogOpen(true);
+    } else {
+      // Buscar os itens do pedido antes de abrir o WhatsApp
+      fetch(`/api/admin/orders/${order.id}/items`)
+        .then(res => res.json())
+        .then(items => {
+          const orderWithItems = {
+            ...order,
+            items: items
+          };
+          setSelectedOrderForWhatsApp(orderWithItems);
+          setIsWhatsAppDialogOpen(true);
+        })
+        .catch(err => {
+          console.error('Erro ao buscar itens:', err);
+          // Abrir mesmo sem itens
+          setSelectedOrderForWhatsApp(order);
+          setIsWhatsAppDialogOpen(true);
+        });
+    }
+  };
+  
+  // Função chamada após adicionar telefone
+  const handlePhoneAdded = (phone: string) => {
+    if (selectedOrderForPhone) {
+      // Atualizar o pedido com o novo telefone
+      const updatedOrder = {
+        ...selectedOrderForPhone,
+        customerPhone: phone
+      };
+      
+      // Buscar os itens do pedido antes de abrir o WhatsApp
+      fetch(`/api/admin/orders/${updatedOrder.id}/items`)
+        .then(res => res.json())
+        .then(items => {
+          const orderWithItems = {
+            ...updatedOrder,
+            items: items
+          };
+          setSelectedOrderForWhatsApp(orderWithItems);
+          setIsWhatsAppDialogOpen(true);
+        })
+        .catch(err => {
+          console.error('Erro ao buscar itens após telefone:', err);
+          // Abrir mesmo sem itens
+          setSelectedOrderForWhatsApp(updatedOrder);
+          setIsWhatsAppDialogOpen(true);
+        });
+    }
   };
 
   if (!isAuthenticated) {
@@ -297,87 +373,20 @@ export default function AdminOrders() {
             </div>
           </div>
 
-          {/* Dashboard de Vendas */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {/* Vendas de Hoje */}
-            <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-purple-100 text-sm font-medium mb-1">Vendas Hoje</p>
-                    <p className="text-3xl font-bold text-white">{formatCurrency(totalSalesToday)}</p>
-                    <p className="text-purple-200 text-xs mt-1">{todayOrders.length} pedidos</p>
-                  </div>
-                  <div className="w-12 h-12 bg-purple-400/20 rounded-full flex items-center justify-center">
-                    <TrendingUp className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Vendas à Vista */}
-            <Card className="bg-gradient-to-br from-green-500 to-emerald-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-green-100 text-sm font-medium mb-1">À Vista</p>
-                    <p className="text-3xl font-bold text-white">{formatCurrency(cashSalesToday)}</p>
-                    <p className="text-green-200 text-xs mt-1">Hoje</p>
-                  </div>
-                  <div className="w-12 h-12 bg-green-400/20 rounded-full flex items-center justify-center">
-                    <DollarSign className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Crediário */}
-            <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100 text-sm font-medium mb-1">Crediário</p>
-                    <p className="text-3xl font-bold text-white">{formatCurrency(creditSalesToday)}</p>
-                    <p className="text-blue-200 text-xs mt-1">Hoje</p>
-                  </div>
-                  <div className="w-12 h-12 bg-blue-400/20 rounded-full flex items-center justify-center">
-                    <CreditCard className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Pedidos Pendentes */}
-            <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg hover:shadow-xl transition-all duration-300">
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-orange-100 text-sm font-medium mb-1">Pendentes</p>
-                    <p className="text-3xl font-bold text-white">{pendingOrders}</p>
-                    <p className="text-orange-200 text-xs mt-1">Aguardando</p>
-                  </div>
-                  <div className="w-12 h-12 bg-orange-400/20 rounded-full flex items-center justify-center">
-                    <Clock className="h-6 w-6 text-white" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
           {/* Sistema de Abas */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="dashboard" className="flex items-center space-x-2">
-                <Receipt className="h-4 w-4" />
-                <span>Pedidos Ativos</span>
+                <DollarSign className="h-4 w-4" />
+                <span>Pedidos à Vista</span>
               </TabsTrigger>
               <TabsTrigger value="history" className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4" />
-                <span>Histórico</span>
+                <CreditCard className="h-4 w-4" />
+                <span>Pedidos Crediário</span>
               </TabsTrigger>
             </TabsList>
 
-            {/* Aba de Pedidos Ativos */}
+            {/* Aba de Pedidos à Vista */}
             <TabsContent value="dashboard" className="space-y-6">
               {/* Filtros */}
               <Card className="shadow-sm border-petrol-200">
@@ -412,12 +421,12 @@ export default function AdminOrders() {
                 </CardContent>
               </Card>
 
-              {/* Lista de Pedidos */}
+              {/* Lista de Pedidos à Vista */}
               <Card className="shadow-lg border-petrol-100">
                 <CardHeader>
                   <CardTitle className="text-petrol-700 flex items-center">
-                    <Receipt className="h-5 w-5 mr-2" />
-                    Lista de Pedidos ({orders?.length || 0})
+                    <DollarSign className="h-5 w-5 mr-2" />
+                    Pedidos à Vista ({orders?.filter(order => order.paymentMethod !== 'credit')?.length || 0})
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -465,12 +474,14 @@ export default function AdminOrders() {
                     <div className="space-y-4">
                       {orders
                         .filter(order => {
+                          // Filtrar apenas pedidos à vista (não crediário)
+                          const isNotCredit = order.paymentMethod !== 'credit';
                           const matchesSearch = !searchTerm || 
                             order.id?.toString().includes(searchTerm) ||
                             order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             order.customerPhone?.includes(searchTerm);
                           const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-                          return matchesSearch && matchesStatus;
+                          return isNotCredit && matchesSearch && matchesStatus;
                         })
                         .sort((a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime())
                         .map((order) => (
@@ -486,7 +497,7 @@ export default function AdminOrders() {
                                 </div>
                                 <div>
                                   <h3 className="font-semibold text-lg text-petrol-700">
-                                    Pedido #{order.id}
+                                    Pedido #{formatOrderNumber(order)}
                                   </h3>
                                   <p className="text-sm text-gray-600">
                                     {formatDateTime(order.createdAt || '')}
@@ -518,6 +529,7 @@ export default function AdminOrders() {
                                    order.paymentMethod === 'pix' ? 'PIX' :
                                    order.paymentMethod === 'cartao' ? 'Cartão' :
                                    order.paymentMethod === 'dinheiro' ? 'Dinheiro' :
+                                   order.paymentMethod === 'cash' ? 'Dinheiro' :
                                    order.paymentMethod || 'N/A'}
                                 </p>
                                 {order.paymentMethod === 'credit' && order.dueDate && (
@@ -551,16 +563,33 @@ export default function AdminOrders() {
                                   Ver Detalhes
                                 </Button>
                               
+                              {/* Botão WhatsApp - sempre disponível */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-green-50 border-green-300 text-green-700 hover:bg-green-100"
+                                onClick={() => openWhatsAppDialog(order)}
+                              >
+                                <MessageCircle className="h-4 w-4 mr-1" />
+                                {order.customerPhone || order.customer?.phone ? 'WhatsApp' : 'Adicionar Tel + WhatsApp'}
+                              </Button>
+                              
                               {order.status === 'pending' && (
                                 <>
                                   <Button
                                     size="sm"
                                     className="bg-green-600 hover:bg-green-700 text-white"
-                                    onClick={() => confirmOrder(order.id)}
-                                    disabled={isConfirming}
+                                    onClick={() => {
+                                      completeOrder(order.id);
+                                      // Após concluir, mostrar automaticamente o modal do WhatsApp
+                                      setTimeout(() => {
+                                        openWhatsAppDialog(order);
+                                      }, 1500);
+                                    }}
+                                    disabled={isCompleting}
                                   >
                                     <CheckCircle2 className="h-4 w-4 mr-1" />
-                                    {isConfirming ? 'Confirmando...' : 'Confirmar'}
+                                    {isCompleting ? 'Concluindo...' : 'Concluir'}
                                   </Button>
                                   
                                   <Button
@@ -571,21 +600,9 @@ export default function AdminOrders() {
                                     disabled={isCancelling}
                                   >
                                     <XCircle className="h-4 w-4 mr-1" />
-                                    {isCancelling ? 'Cancelando...' : 'Cancelar'}
+                                    {isCancelling ? 'Cancelando...' : 'Cancelar Venda'}
                                   </Button>
                                 </>
-                              )}
-                              
-                              {order.status === 'confirmed' && (
-                                <Button
-                                  size="sm"
-                                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                                  onClick={() => completeOrder(order.id)}
-                                  disabled={isCompleting}
-                                >
-                                  <Package className="h-4 w-4 mr-1" />
-                                  {isCompleting ? 'Concluindo...' : 'Concluir'}
-                                </Button>
                               )}
                               
                               {/* Botão de Delete com Confirmação */}
@@ -605,7 +622,7 @@ export default function AdminOrders() {
                                   <AlertDialogHeader>
                                     <AlertDialogTitle>Confirmar Exclusão do Pedido</AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      Tem certeza que deseja deletar o pedido #{order.id}?
+                                      Tem certeza que deseja deletar o pedido #{formatOrderNumber(order)}?
                                       <br />
                                       <strong>Esta ação não pode ser desfeita.</strong>
                                       <br /><br />
@@ -636,17 +653,257 @@ export default function AdminOrders() {
               </Card>
             </TabsContent>
 
-            {/* Aba de Histórico */}
+            {/* Aba de Pedidos Crediário */}
             <TabsContent value="history" className="space-y-6">
-              <Card>
+              {/* Filtros */}
+              <Card className="shadow-sm border-blue-200">
+                <CardContent className="p-6">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="flex-1">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                        <Input
+                          placeholder="Buscar por número do pedido, cliente..."
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          className="pl-10 border-blue-200 focus:border-blue-400"
+                        />
+                      </div>
+                    </div>
+                    <div className="sm:w-48">
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="border-blue-200 focus:border-blue-400">
+                          <SelectValue placeholder="Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Todos os Status</SelectItem>
+                          <SelectItem value="pending">Pendentes</SelectItem>
+                          <SelectItem value="confirmed">Confirmados</SelectItem>
+                          <SelectItem value="completed">Concluídos</SelectItem>
+                          <SelectItem value="cancelled">Cancelados</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Lista de Pedidos Crediário */}
+              <Card className="shadow-lg border-blue-100">
                 <CardHeader>
-                  <CardTitle>Histórico de Pedidos</CardTitle>
+                  <CardTitle className="text-blue-700 flex items-center">
+                    <CreditCard className="h-5 w-5 mr-2" />
+                    Pedidos Crediário ({orders?.filter(order => order.paymentMethod === 'credit')?.length || 0})
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-center py-8 text-gray-500">
-                    <Calendar className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                    <p>Histórico detalhado será implementado em breve</p>
-                  </div>
+                  {ordersLoading ? (
+                    <div className="space-y-4">
+                      {Array.from({ length: 5 }).map((_, i) => (
+                        <div key={i} className="flex items-center space-x-4 p-4 border rounded-lg">
+                          <Skeleton className="w-12 h-12 rounded-full" />
+                          <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-1/3" />
+                            <Skeleton className="h-3 w-1/4" />
+                          </div>
+                          <Skeleton className="w-20 h-8" />
+                          <Skeleton className="w-24 h-8" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : !orders?.filter(order => order.paymentMethod === 'credit') || orders.filter(order => order.paymentMethod === 'credit').length === 0 ? (
+                    <div className="text-center py-16">
+                      <CreditCard className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+                      <h3 className="text-xl font-medium text-gray-600 mb-2">
+                        Nenhum pedido de crediário encontrado
+                      </h3>
+                      <p className="text-gray-500 mb-6">
+                        Quando houver pedidos de crediário, eles aparecerão aqui
+                      </p>
+                      <Button
+                        onClick={() => openNewOrderModal('credit')}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <CreditCard className="h-4 w-4 mr-2" />
+                        Novo Pedido Crediário
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {orders
+                        .filter(order => {
+                          // Filtrar apenas pedidos de crediário
+                          const isCredit = order.paymentMethod === 'credit';
+                          const matchesSearch = !searchTerm || 
+                            order.id?.toString().includes(searchTerm) ||
+                            order.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            order.customerPhone?.includes(searchTerm);
+                          const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+                          return isCredit && matchesSearch && matchesStatus;
+                        })
+                        .sort((a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime())
+                        .map((order) => (
+                          <div key={order.id} className="border border-blue-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-gradient-to-r from-blue-50 to-indigo-50">
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center space-x-4">
+                                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                  <CreditCard className="h-6 w-6 text-blue-600" />
+                                </div>
+                                <div>
+                                  <h3 className="font-semibold text-lg text-blue-700">
+                                    Pedido #{formatOrderNumber(order)}
+                                  </h3>
+                                  <p className="text-sm text-gray-600">
+                                    {formatDateTime(order.createdAt || '')}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-3">
+                                {getStatusBadge(order.status || 'pending')}
+                                {getPaymentStatusBadge(order.paymentStatus || 'pending')}
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                              <div>
+                                <p className="text-sm text-gray-500 mb-1">Cliente</p>
+                                <p className="font-medium text-blue-700">{order.customerName || 'N/A'}</p>
+                                {order.customerPhone && (
+                                  <p className="text-sm text-gray-600 flex items-center">
+                                    <Phone className="h-3 w-3 mr-1" />
+                                    {order.customerPhone}
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div>
+                                <p className="text-sm text-gray-500 mb-1">Pagamento</p>
+                                <p className="font-medium text-blue-700">Crediário</p>
+                                {order.dueDate && (
+                                  <p className="text-sm text-gray-600">
+                                    Vence: {formatDate(order.dueDate)}
+                                  </p>
+                                )}
+                              </div>
+                              
+                              <div>
+                                <p className="text-sm text-gray-500 mb-1">Total</p>
+                                <p className="font-bold text-xl text-blue-700">
+                                  {formatCurrency(order.total || 0)}
+                                </p>
+                                {order.items && (
+                                  <p className="text-sm text-gray-600">
+                                    {order.items.length} {order.items.length === 1 ? 'item' : 'itens'}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                                onClick={() => openOrderDetails(order.id)}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                Ver Detalhes
+                              </Button>
+                            
+                              {/* Botão WhatsApp - sempre disponível */}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="bg-green-50 border-green-300 text-green-700 hover:bg-green-100"
+                                onClick={() => openWhatsAppDialog(order)}
+                              >
+                                <MessageCircle className="h-4 w-4 mr-1" />
+                                {order.customerPhone || order.customer?.phone ? 'WhatsApp' : 'Adicionar Tel + WhatsApp'}
+                              </Button>
+                              
+                              {order.status === 'pending' && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                    onClick={() => {
+                                      completeOrder(order.id);
+                                      // Após concluir, mostrar automaticamente o modal do WhatsApp
+                                      setTimeout(() => {
+                                        openWhatsAppDialog(order);
+                                      }, 1500);
+                                    }}
+                                    disabled={isCompleting}
+                                  >
+                                    {isCompleting ? (
+                                      <>
+                                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                        Processando...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CheckCircle2 className="h-4 w-4 mr-1" />
+                                        Confirmar Crediário
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-red-300 text-red-700 hover:bg-red-50"
+                                    onClick={() => cancelOrder({ orderId: order.id })}
+                                    disabled={isCancelling}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    {isCancelling ? 'Cancelando...' : 'Cancelar Crediário'}
+                                  </Button>
+                                </>
+                              )}
+                              
+                              {/* Botão de Delete com Confirmação */}
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-red-300 text-red-700 hover:bg-red-50"
+                                    disabled={deleteOrderMutation.isPending}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-1" />
+                                    {deleteOrderMutation.isPending ? 'Deletando...' : 'Deletar'}
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Confirmar Exclusão do Pedido de Crediário</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Tem certeza que deseja deletar o pedido de crediário #{formatOrderNumber(order)}?
+                                      <br />
+                                      <strong>Esta ação não pode ser desfeita.</strong>
+                                      <br /><br />
+                                      <span className="text-sm text-gray-600">
+                                        Cliente: {order.customerName || 'N/A'}
+                                        <br />
+                                        Total: {formatCurrency(order.total || 0)}
+                                      </span>
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleDeleteOrder(order.id)}
+                                      className="bg-red-600 hover:bg-red-700"
+                                    >
+                                      Sim, Deletar Pedido
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -667,6 +924,28 @@ export default function AdminOrders() {
         onClose={() => setIsNewOrderModalOpen(false)}
         orderType={orderType}
       />
+      
+      {/* Modal do WhatsApp */}
+      {selectedOrderForWhatsApp && (
+        <OrderWhatsAppDialog
+          isOpen={isWhatsAppDialogOpen}
+          onOpenChange={setIsWhatsAppDialogOpen}
+          order={selectedOrderForWhatsApp}
+          customer={selectedOrderForWhatsApp.customer}
+          orderItems={selectedOrderForWhatsApp.items}
+        />
+      )}
+      
+      {/* Modal para Adicionar Telefone */}
+      {selectedOrderForPhone && (
+        <AddPhoneDialog
+          isOpen={isAddPhoneDialogOpen}
+          onOpenChange={setIsAddPhoneDialogOpen}
+          order={selectedOrderForPhone}
+          customer={selectedOrderForPhone.customer}
+          onPhoneAdded={handlePhoneAdded}
+        />
+      )}
     </div>
   );
 }

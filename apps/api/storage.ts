@@ -110,6 +110,7 @@ export interface IStorage {
   // Reservation operations
   getAllReservations(): Promise<Reservation[]>;
   getReservation(id: string): Promise<Reservation | undefined>;
+  getReservationsByCreditAccount(creditAccountId: string): Promise<Reservation[]>;
   createReservation(reservation: InsertReservation): Promise<Reservation>;
   updateReservation(id: string, reservation: Partial<Reservation>): Promise<Reservation | undefined>;
   deleteReservation(id: string): Promise<boolean>;

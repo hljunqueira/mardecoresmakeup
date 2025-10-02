@@ -539,6 +539,17 @@ export class SupabaseStorage implements IStorage {
     return result[0];
   }
 
+  async getReservationsByCreditAccount(creditAccountId: string): Promise<Reservation[]> {
+    try {
+      return await db.select().from(schema.reservations)
+        .where(eq(schema.reservations.creditAccountId, creditAccountId))
+        .orderBy(schema.reservations.createdAt);
+    } catch (error) {
+      console.error('❌ Erro ao buscar reservas da conta de crediário:', error);
+      throw error;
+    }
+  }
+
   async createReservation(reservation: InsertReservation): Promise<Reservation> {
     const result = await db.insert(schema.reservations).values({
       ...reservation,
@@ -1336,28 +1347,35 @@ export class SupabaseStorage implements IStorage {
   // Order utilities
   async generateOrderNumber(): Promise<string> {
     try {
-      // Buscar o último pedido para gerar próximo número
-      const lastOrder = await db.select({ orderNumber: schema.orders.orderNumber })
+      // Buscar todos os pedidos com padrão PED e fazer ordenação no JavaScript
+      const allOrders = await db.select({ orderNumber: schema.orders.orderNumber })
         .from(schema.orders)
-        .where(sql`${schema.orders.orderNumber} LIKE 'PED%'`)
-        .orderBy(sql`${schema.orders.createdAt} DESC`)
-        .limit(1);
+        .where(sql`${schema.orders.orderNumber} LIKE 'PED%'`);
       
-      let nextNumber = 1;
+      let maxNumber = 0;
       
-      if (lastOrder.length > 0 && lastOrder[0].orderNumber) {
-        const currentNumber = parseInt(lastOrder[0].orderNumber.replace('PED', ''));
-        if (!isNaN(currentNumber)) {
-          nextNumber = currentNumber + 1;
+      // Processar todos os números para encontrar o maior
+      allOrders.forEach(order => {
+        if (order.orderNumber) {
+          const number = parseInt(order.orderNumber.replace('PED', ''));
+          if (!isNaN(number) && number > maxNumber) {
+            maxNumber = number;
+          }
         }
-      }
+      });
       
+      const nextNumber = maxNumber + 1;
       const paddedNumber = nextNumber.toString().padStart(3, '0');
-      return `PED${paddedNumber}`;
+      const newOrderNumber = `PED${paddedNumber}`;
+      
+      console.log(`🔢 Gerando número do pedido: ${newOrderNumber} (próximo após PED${maxNumber.toString().padStart(3, '0')})`);
+      return newOrderNumber;
     } catch (error) {
       console.error('❌ Erro ao gerar número do pedido:', error);
       // Fallback: usar timestamp
-      return `PED${Date.now().toString().slice(-6)}`;
+      const fallbackNumber = `PED${Date.now().toString().slice(-6)}`;
+      console.log(`🔢 Usando número fallback: ${fallbackNumber}`);
+      return fallbackNumber;
     }
   }
 
@@ -1416,14 +1434,13 @@ export class SupabaseStorage implements IStorage {
         isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
         isApproved: schema.productReviews.isApproved,
         createdAt: schema.productReviews.createdAt,
-        // Join com customer para pegar nome
-        customerName: schema.customers.name,
-        customerEmail: schema.customers.email,
+        // Usar campos diretos da tabela de avaliações
+        customerName: schema.productReviews.customerName,
+        customerEmail: schema.productReviews.customerEmail,
         // Join com product para pegar nome do produto
         productName: schema.products.name,
       })
       .from(schema.productReviews)
-      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
       .leftJoin(schema.products, eq(schema.productReviews.productId, schema.products.id))
       .orderBy(sql`${schema.productReviews.createdAt} DESC`);
     } catch (error) {
@@ -1445,12 +1462,11 @@ export class SupabaseStorage implements IStorage {
         isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
         isApproved: schema.productReviews.isApproved,
         createdAt: schema.productReviews.createdAt,
-        // Join com customer para pegar nome
-        customerName: schema.customers.name,
-        customerEmail: schema.customers.email,
+        // Usar campos diretos da tabela de avaliações
+        customerName: schema.productReviews.customerName,
+        customerEmail: schema.productReviews.customerEmail,
       })
       .from(schema.productReviews)
-      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
       .where(and(
         eq(schema.productReviews.productId, productId),
         eq(schema.productReviews.isApproved, true)
@@ -1535,14 +1551,13 @@ export class SupabaseStorage implements IStorage {
         isVerifiedPurchase: schema.productReviews.isVerifiedPurchase,
         isApproved: schema.productReviews.isApproved,
         createdAt: schema.productReviews.createdAt,
-        // Join com customer para pegar nome
-        customerName: schema.customers.name,
-        customerEmail: schema.customers.email,
+        // Usar campos diretos da tabela de avaliações
+        customerName: schema.productReviews.customerName,
+        customerEmail: schema.productReviews.customerEmail,
         // Join com product para pegar nome do produto
         productName: schema.products.name,
       })
       .from(schema.productReviews)
-      .leftJoin(schema.customers, eq(schema.productReviews.customerId, schema.customers.id))
       .leftJoin(schema.products, eq(schema.productReviews.productId, schema.products.id))
       .where(eq(schema.productReviews.id, id))
       .limit(1);

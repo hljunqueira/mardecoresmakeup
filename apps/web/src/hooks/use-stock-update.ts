@@ -40,7 +40,6 @@ interface CreditAccountData {
 interface CreateCustomerAndCreditData {
   customerData: {
     name: string;
-    email: string;
     phone: string;
   };
   productId: string;
@@ -255,6 +254,27 @@ export function useStockUpdate() {
       console.log('💳 Adicionando produto ao crediário:', creditData);
       
       try {
+        // 0. 📦 REDUZIR ESTOQUE PRIMEIRO (NOVO FLUXO)
+        console.log('📦 Reduzindo estoque do produto antes de adicionar ao crediário...');
+        const productResponse = await apiRequest("GET", `/api/admin/products/${creditData.productId}`);
+        const product = await productResponse.json();
+        
+        const currentStock = product.stock || 0;
+        const newStock = currentStock - creditData.quantity;
+        
+        console.log(`📦 Estoque de "${product.name}": ${currentStock} → ${newStock}`);
+        
+        if (newStock < 0) {
+          throw new Error(`Estoque insuficiente para ${product.name}. Disponível: ${currentStock}, Solicitado: ${creditData.quantity}`);
+        }
+        
+        // Atualizar estoque do produto
+        await apiRequest("PUT", `/api/admin/products/${creditData.productId}`, {
+          stock: newStock
+        });
+        
+        console.log('✅ Estoque reduzido com sucesso');
+        
         // 1. Buscar conta ativa do cliente ou criar nova
         const customerAccountsResponse = await apiRequest("GET", `/api/admin/customers/${creditData.customerId}/credit-accounts`);
         const customerAccounts = await customerAccountsResponse.json();
@@ -305,14 +325,23 @@ export function useStockUpdate() {
         return {
           account: activeAccount,
           reservation,
-          totalAmount: creditData.totalAmount
+          totalAmount: creditData.totalAmount,
+          stockReduced: {
+            productId: creditData.productId,
+            productName: product.name,
+            previousStock: currentStock,
+            newStock: newStock,
+            quantityReduced: creditData.quantity
+          }
         };
       } catch (error) {
         console.error('❌ Erro ao adicionar ao crediário:', error);
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('🎆 Produto adicionado ao crediário com estoque reduzido:', data.stockReduced);
+      
       queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/reservations"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
@@ -329,7 +358,6 @@ export function useStockUpdate() {
         // 1. Criar novo cliente
         const customerResponse = await apiRequest("POST", "/api/admin/customers", {
           name: data.customerData.name,
-          email: data.customerData.email,
           phone: data.customerData.phone || null,
         });
         

@@ -38,6 +38,7 @@ import {
 import CustomerModal from "@/components/ui/customer-modal";
 import type { Product, Customer } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface CartItem {
   product: Product;
@@ -94,12 +95,82 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
     onSuccess: () => {
       toast({
         title: "Pedido criado com sucesso!",
-        description: "O pedido foi registrado no sistema.",
+        description: orderType === 'credit' 
+          ? "O pedido foi registrado e o estoque já foi reduzido."
+          : "O pedido foi registrado no sistema.",
       });
+      
+      // 💰 Invalidar TODAS as queries relacionadas (incluindo financeiro)
       queryClient.invalidateQueries({ queryKey: ["/api/admin/orders"] });
-      handleClose();
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/consolidated"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
+      
+      console.log('✅ Todas as queries invalidadas - sistema financeiro atualizado');
+      
+      // 📢 Disparar evento personalizado para atualização financeira
+      const financialEvent = new CustomEvent('financial-update', {
+        detail: { 
+          source: 'order-creation', 
+          orderType: orderType,
+          amount: subtotal,
+          timestamp: new Date().toISOString() 
+        }
+      });
+      window.dispatchEvent(financialEvent);
+      
+      const orderEvent = new CustomEvent('order-status-change', {
+        detail: { 
+          action: 'created',
+          orderType: orderType,
+          amount: subtotal,
+          timestamp: new Date().toISOString() 
+        }
+      });
+      window.dispatchEvent(orderEvent);
+      
+      console.log('📢 Eventos financeiros disparados');
+      
+      // Limpar apenas se sucesso (não devolver estoque)
+      setActiveTab("products");
+      setSearchTerm("");
+      setCartItems([]);
+      setSelectedCustomer(null);
+      setCustomerData({ name: "", phone: "" });
+      setPaymentMethod("");
+      setNotes("");
+      setIsSubmitting(false);
+      setIsCustomerModalOpen(false);
+      onClose();
     },
     onError: (error) => {
+      console.error('Erro ao criar pedido:', error);
+      
+      // Se houve erro e é crediário, devolver estoque
+      if (orderType === 'credit' && cartItems.length > 0) {
+        console.log('❌ Erro na criação do pedido - devolvendo estoque...');
+        
+        cartItems.forEach(async (item) => {
+          try {
+            const newStock = (item.product.stock || 0) + item.quantity;
+            
+            await apiRequest("PUT", `/api/admin/products/${item.product.id}`, {
+              stock: newStock
+            });
+            
+            console.log(`🔄 Estoque devolvido por erro: ${item.product.name}`);
+          } catch (stockError) {
+            console.error(`❌ Erro ao devolver estoque de ${item.product.name}:`, stockError);
+          }
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      }
+      
       toast({
         title: "Erro ao criar pedido",
         description: "Tente novamente ou contate o suporte.",
@@ -115,7 +186,32 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
     }).format(value);
   };
 
-  const handleClose = () => {
+  const handleClose = async () => {
+    // 🎯 NOVO FLUXO: Para pedidos de crediário, devolver estoque dos produtos no carrinho
+    if (orderType === 'credit' && cartItems.length > 0) {
+      console.log('🔄 Devolvendo estoque dos produtos no carrinho ao fechar modal...');
+      
+      for (const item of cartItems) {
+        try {
+          const newStock = (item.product.stock || 0) + item.quantity;
+          
+          await apiRequest("PUT", `/api/admin/products/${item.product.id}`, {
+            stock: newStock
+          });
+          
+          console.log(`🔄 Estoque devolvido: ${item.product.name} (${item.product.stock} → ${newStock})`);
+        } catch (error) {
+          console.error(`❌ Erro ao devolver estoque de ${item.product.name}:`, error);
+        }
+      }
+      
+      // Invalidar queries para atualizar a interface
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+      
+      console.log('✅ Estoque devolvido para todos os produtos');
+    }
+    
     setActiveTab("products");
     setSearchTerm("");
     setCartItems([]);
@@ -132,23 +228,85 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
     setSelectedCustomer(newCustomer);
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = async (product: Product) => {
     const existingItem = cartItems.find(item => item.product.id === product.id);
     
     if (existingItem) {
-      if (existingItem.quantity < (product.stock || 0)) {
-        updateQuantity(product.id, existingItem.quantity + 1);
+      // 🎯 NOVO: Para crediário, permitir adicionar mesmo com estoque 0 (se já está no carrinho)
+      if (orderType === 'credit') {
+        // Para crediário: verificar estoque atual no servidor
+        const currentStock = products?.find(p => p.id === product.id)?.stock || 0;
+        
+        if (currentStock > 0) {
+          await updateQuantity(product.id, existingItem.quantity + 1);
+        } else {
+          toast({
+            title: "Estoque esgotado",
+            description: `Não há mais estoque de ${product.name}`,
+            variant: "destructive",
+          });
+        }
       } else {
-        toast({
-          title: "Estoque insuficiente",
-          description: `Máximo disponível: ${product.stock}`,
-          variant: "destructive",
-        });
+        // Para pedidos à vista: regra original
+        if (existingItem.quantity < (product.stock || 0)) {
+          await updateQuantity(product.id, existingItem.quantity + 1);
+        } else {
+          toast({
+            title: "Estoque insuficiente",
+            description: `Máximo disponível: ${product.stock}`,
+            variant: "destructive",
+          });
+        }
       }
     } else {
+      // 🎯 NOVO FLUXO: Para pedidos de crediário, reduzir estoque imediatamente
+      if (orderType === 'credit') {
+        try {
+          console.log(`📦 Reduzindo estoque para crediário: ${product.name} (${product.stock} → ${(product.stock || 0) - 1})`);
+          
+          // Verificar se há estoque suficiente
+          if ((product.stock || 0) <= 0) {
+            toast({
+              title: "Estoque esgotado",
+              description: `Produto ${product.name} sem estoque disponível`,
+              variant: "destructive",
+            });
+            return;
+          }
+          
+          // Reduzir estoque do produto na API
+          await apiRequest("PUT", `/api/admin/products/${product.id}`, {
+            stock: (product.stock || 0) - 1
+          });
+          
+          // Invalidar queries para atualizar a lista de produtos
+          queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+          
+          console.log(`✅ Estoque reduzido com sucesso: ${product.name}`);
+          
+          toast({
+            title: "Produto adicionado",
+            description: `${product.name} adicionado ao carrinho (estoque reduzido)`,
+          });
+        } catch (error) {
+          console.error('❌ Erro ao reduzir estoque:', error);
+          toast({
+            title: "Erro ao reduzir estoque",
+            description: "Não foi possível adicionar o produto. Tente novamente.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+      
       const unitPrice = parseFloat(product.price.toString());
       const newItem: CartItem = {
-        product,
+        product: {
+          ...product,
+          // Atualizar estoque local para pedidos de crediário
+          stock: orderType === 'credit' ? (product.stock || 0) - 1 : product.stock
+        },
         quantity: 1,
         unitPrice,
         totalPrice: unitPrice,
@@ -157,10 +315,52 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
     }
   };
 
-  const updateQuantity = (productId: string, quantity: number) => {
+  const updateQuantity = async (productId: string, quantity: number) => {
     if (quantity === 0) {
-      removeFromCart(productId);
+      await removeFromCart(productId);
       return;
+    }
+
+    const currentItem = cartItems.find(item => item.product.id === productId);
+    if (!currentItem) return;
+    
+    const quantityDiff = quantity - currentItem.quantity;
+    
+    // 🎯 NOVO FLUXO: Para pedidos de crediário, ajustar estoque na diferença
+    if (orderType === 'credit' && quantityDiff !== 0) {
+      try {
+        const newStock = (currentItem.product.stock || 0) - quantityDiff;
+        
+        if (newStock < 0) {
+          toast({
+            title: "Estoque insuficiente",
+            description: `Estoque disponível: ${currentItem.product.stock}`,
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        console.log(`📦 Ajustando estoque: ${currentItem.product.name} (${currentItem.product.stock} → ${newStock})`);
+        
+        // Atualizar estoque na API
+        await apiRequest("PUT", `/api/admin/products/${productId}`, {
+          stock: newStock
+        });
+        
+        // Invalidar queries para atualizar
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+        
+        console.log(`✅ Estoque ajustado: ${currentItem.product.name}`);
+      } catch (error) {
+        console.error('❌ Erro ao ajustar estoque:', error);
+        toast({
+          title: "Erro ao ajustar estoque",
+          description: "Não foi possível alterar a quantidade.",
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     setCartItems(items =>
@@ -170,24 +370,75 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
               ...item,
               quantity,
               totalPrice: item.unitPrice * quantity,
+              product: {
+                ...item.product,
+                // Atualizar estoque local para pedidos de crediário
+                stock: orderType === 'credit' ? (item.product.stock || 0) - quantityDiff : item.product.stock
+              }
             }
           : item
       )
     );
   };
 
-  const removeFromCart = (productId: string) => {
+  const removeFromCart = async (productId: string) => {
+    const itemToRemove = cartItems.find(item => item.product.id === productId);
+    if (!itemToRemove) return;
+    
+    // 🎯 NOVO FLUXO: Para pedidos de crediário, devolver estoque quando remover
+    if (orderType === 'credit') {
+      try {
+        const newStock = (itemToRemove.product.stock || 0) + itemToRemove.quantity;
+        
+        console.log(`🔄 Devolvendo estoque: ${itemToRemove.product.name} (${itemToRemove.product.stock} → ${newStock})`);
+        
+        // Devolver estoque na API
+        await apiRequest("PUT", `/api/admin/products/${productId}`, {
+          stock: newStock
+        });
+        
+        // Invalidar queries para atualizar
+        queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+        
+        console.log(`✅ Estoque devolvido: ${itemToRemove.product.name}`);
+        
+        toast({
+          title: "Produto removido",
+          description: `${itemToRemove.product.name} removido (estoque devolvido)`,
+        });
+      } catch (error) {
+        console.error('❌ Erro ao devolver estoque:', error);
+        toast({
+          title: "Erro ao devolver estoque",
+          description: "Produto removido, mas houve erro ao devolver estoque.",
+          variant: "destructive",
+        });
+      }
+    }
+    
     setCartItems(items => items.filter(item => item.product.id !== productId));
   };
 
   const subtotal = cartItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  const filteredProducts = products?.filter(product =>
-    product.active &&
-    (product.stock || 0) > 0 &&
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
+  // 🎯 NOVO FILTRO: Para crediário, mostrar produtos no carrinho mesmo com estoque 0
+  const filteredProducts = products?.filter(product => {
+    const isActive = product.active;
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (orderType === 'credit') {
+      // Para crediário: mostrar se tem estoque OU se já está no carrinho
+      const isInCart = cartItems.some(item => item.product.id === product.id);
+      const hasStock = (product.stock || 0) > 0;
+      return isActive && matchesSearch && (hasStock || isInCart);
+    } else {
+      // Para pedidos à vista: regra normal (apenas com estoque)
+      const hasStock = (product.stock || 0) > 0;
+      return isActive && matchesSearch && hasStock;
+    }
+  }) || [];
 
   const canProceed = cartItems.length > 0 && (
     orderType === 'cash' ? 
@@ -322,6 +573,9 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
                                 <h4 className="font-medium">{product.name}</h4>
                                 <p className="text-sm text-gray-500 mb-2">
                                   Estoque: {product.stock} unidades
+                                  {product.stock === 0 && cartItems.some(item => item.product.id === product.id) && (
+                                    <span className="text-orange-600 font-medium ml-2">(Já no carrinho)</span>
+                                  )}
                                 </p>
                                 <div className="flex items-center justify-between">
                                   <p className="font-semibold text-lg text-petrol-700">
@@ -331,9 +585,10 @@ export function NewOrderModal({ isOpen, onClose, orderType }: NewOrderModalProps
                                     size="sm"
                                     onClick={() => addToCart(product)}
                                     className="bg-petrol-600 hover:bg-petrol-700"
+                                    disabled={product.stock === 0 && !cartItems.some(item => item.product.id === product.id)}
                                   >
                                     <Plus className="h-4 w-4 mr-2" />
-                                    Adicionar
+                                    {product.stock === 0 && cartItems.some(item => item.product.id === product.id) ? 'Adicionar +' : 'Adicionar'}
                                   </Button>
                                 </div>
                               </div>

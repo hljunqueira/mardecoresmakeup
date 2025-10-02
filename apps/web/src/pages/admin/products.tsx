@@ -53,6 +53,8 @@ export default function AdminProducts() {
   const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isImageSearchOpen, setIsImageSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [lastEditedProductId, setLastEditedProductId] = useState<string | null>(null);
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
 
@@ -207,9 +209,13 @@ export default function AdminProducts() {
       const response = await apiRequest("PUT", `/api/admin/products/${id}`, cleanedData);
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedProduct) => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/products"] }); // Invalida cache público também
+      
+      // Armazenar o ID do produto editado para manter posição
+      setLastEditedProductId(updatedProduct.id);
+      
       toast({
         title: "Produto atualizado!",
         description: "As alterações foram salvas com sucesso.",
@@ -217,6 +223,14 @@ export default function AdminProducts() {
       setIsDialogOpen(false);
       setEditingProduct(null);
       form.reset();
+      
+      // Scroll para o produto editado após um breve delay
+      setTimeout(() => {
+        const productElement = document.getElementById(`product-${updatedProduct.id}`);
+        if (productElement) {
+          productElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
     },
     onError: (error) => {
       toast({
@@ -229,7 +243,12 @@ export default function AdminProducts() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      await apiRequest("DELETE", `/api/admin/products/${id}`);
+      const response = await apiRequest("DELETE", `/api/admin/products/${id}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.message || 'Erro ao deletar produto');
+      }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/admin/products"] });
@@ -250,19 +269,6 @@ export default function AdminProducts() {
 
   const onSubmit = (data: ProductForm) => {
     if (editingProduct) {
-      // Verificar se há redução de estoque
-      const previousStock = editingProduct.stock || 0;
-      const newStock = data.stock;
-      
-      if (newStock < previousStock) {
-        // Interceptar atualização para confirmação de venda
-        handleStockReduction(editingProduct, newStock);
-        setIsDialogOpen(false);
-        setEditingProduct(null);
-        form.reset();
-        return;
-      }
-      
       updateMutation.mutate({ id: editingProduct.id, data });
     } else {
       createMutation.mutate(data);
@@ -356,6 +362,13 @@ export default function AdminProducts() {
     }
   };
 
+  // Função para filtrar produtos baseado no termo de busca
+  const filteredProducts = products?.filter(product => 
+    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.brand?.toLowerCase().includes(searchTerm.toLowerCase())
+  ) || [];
+
   const handleToggleVisibility = (product: Product) => {
     toggleVisibilityMutation.mutate({ productId: product.id, newActiveStatus: !product.active });
   };
@@ -366,57 +379,70 @@ export default function AdminProducts() {
       
       <div className="flex-1 lg:ml-64 overflow-auto">
         <div className="p-6 lg:p-8">
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 space-y-4 lg:space-y-0">
             <div>
-              <h1 className="text-3xl font-bold text-petrol-500 dark:text-gold-500 mb-2">
+              <h1 className="text-3xl font-bold text-petrol-500 dark:text-gold-500 mb-4">
                 Produtos
               </h1>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground mb-2">
                 Gerencie seu catálogo de produtos
               </p>
             </div>
 
-            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-              <DialogTrigger asChild>
-                <Button 
-                  className="bg-petrol-500 hover:bg-petrol-600 text-white"
-                  onClick={() => {
-                    setEditingProduct(null);
-                    form.reset();
-                  }}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Adicionar Produto
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto" aria-describedby="product-form-description">
-                <DialogHeader>
-                  <DialogTitle>
-                    {editingProduct ? "Editar Produto" : "Novo Produto"}
-                  </DialogTitle>
-                  <div id="product-form-description" className="text-sm text-muted-foreground">
-                    {editingProduct ? "Siga as etapas para modificar as informações do produto" : "Siga as etapas para criar um novo produto"}
-                  </div>
-                </DialogHeader>
-                
-                <ProductWizard
-                  onSubmit={(data) => {
-                    if (editingProduct) {
-                      updateMutation.mutate({ id: editingProduct.id, data });
-                    } else {
-                      createMutation.mutate(data);
-                    }
-                  }}
-                  onCancel={() => {
-                    setIsDialogOpen(false);
-                    setEditingProduct(null);
-                    form.reset();
-                  }}
-                  isLoading={createMutation.isPending || updateMutation.isPending}
-                  editingProduct={editingProduct}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center space-y-2 sm:space-y-0 sm:space-x-4 w-full lg:w-auto">
+              {/* Campo de Busca */}
+              <div className="relative flex-1 lg:flex-none lg:w-80">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Buscar produtos..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10 pr-4 w-full"
                 />
-              </DialogContent>
-            </Dialog>
+              </div>
+              
+              <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button 
+                    className="bg-petrol-500 hover:bg-petrol-600 text-white w-full sm:w-auto"
+                    onClick={() => {
+                      setEditingProduct(null);
+                      form.reset();
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Adicionar Produto
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto" aria-describedby="product-form-description">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {editingProduct ? "Editar Produto" : "Novo Produto"}
+                    </DialogTitle>
+                    <div id="product-form-description" className="text-sm text-muted-foreground">
+                      {editingProduct ? "Siga as etapas para modificar as informações do produto" : "Siga as etapas para criar um novo produto"}
+                    </div>
+                  </DialogHeader>
+                  
+                  <ProductWizard
+                    onSubmit={(data) => {
+                      if (editingProduct) {
+                        updateMutation.mutate({ id: editingProduct.id, data });
+                      } else {
+                        createMutation.mutate(data);
+                      }
+                    }}
+                    onCancel={() => {
+                      setIsDialogOpen(false);
+                      setEditingProduct(null);
+                      form.reset();
+                    }}
+                    isLoading={createMutation.isPending || updateMutation.isPending}
+                    editingProduct={editingProduct}
+                  />
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
           {/* Products Grid */}
@@ -438,15 +464,22 @@ export default function AdminProducts() {
                 </Card>
               ))
             ) : (
-              products?.map((product) => {
+              filteredProducts?.map((product) => {
                 const isLowStock = (product.stock || 0) <= (product.minStock || 5);
                 const isOutOfStock = (product.stock || 0) === 0;
                 const isInactive = !product.active;
+                const isLastEdited = lastEditedProductId === product.id;
                 
                 return (
-                <Card key={product.id} className={`group hover:shadow-lg transition-shadow ${
-                  isInactive ? 'opacity-60 border-gray-300' : ''
-                }`}>
+                <Card 
+                  key={product.id} 
+                  id={`product-${product.id}`}
+                  className={`group hover:shadow-lg transition-all duration-300 ${
+                    isInactive ? 'opacity-60 border-gray-300' : ''
+                  } ${
+                    isLastEdited ? 'ring-2 ring-petrol-500 shadow-lg' : ''
+                  }`}
+                >
                   <CardContent className="p-0">
                     <div className="relative">
                       <img 
@@ -525,9 +558,12 @@ export default function AdminProducts() {
                     </div>
                     
                     <div className="p-4">
-                      <h3 className={`font-semibold mb-2 truncate ${
-                        isInactive ? 'text-gray-500' : 'text-foreground'
-                      }`}>
+                      <h3 
+                        className={`font-semibold mb-2 truncate cursor-help ${
+                          isInactive ? 'text-gray-500' : 'text-foreground'
+                        }`}
+                        title={product.name}
+                      >
                         {product.name}
                       </h3>
                       
@@ -632,15 +668,27 @@ export default function AdminProducts() {
             )}
           </div>
 
-          {products?.length === 0 && !isLoading && (
+          {filteredProducts?.length === 0 && !isLoading && (
             <div className="text-center py-12">
               <Package className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-muted-foreground mb-2">
-                Nenhum produto encontrado
+                {searchTerm ? 'Nenhum produto encontrado' : 'Nenhum produto cadastrado'}
               </h3>
               <p className="text-muted-foreground mb-4">
-                Comece adicionando seu primeiro produto.
+                {searchTerm 
+                  ? `Nenhum produto corresponde à busca "${searchTerm}".`
+                  : 'Comece adicionando seu primeiro produto.'
+                }
               </p>
+              {searchTerm && (
+                <Button
+                  variant="outline"
+                  onClick={() => setSearchTerm('')}
+                  className="mt-2"
+                >
+                  Limpar busca
+                </Button>
+              )}
             </div>
           )}
         </div>

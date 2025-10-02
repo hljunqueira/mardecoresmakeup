@@ -27,66 +27,44 @@ interface Review {
 export function ReviewForm({ productId, productName, onReviewSubmitted }: ReviewFormProps) {
   const [rating, setRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
-  const [title, setTitle] = useState('');
-  const [comment, setComment] = useState('');
   const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [comment, setComment] = useState('');
+  const [recommendation, setRecommendation] = useState<'sim' | 'nao' | ''>('');
   const queryClient = useQueryClient();
 
   const submitReviewMutation = useMutation({
     mutationFn: async (reviewData: any) => {
-      // Primeiro criar um cliente se necessário
-      let customerId = '';
-      if (customerName && customerEmail) {
-        try {
-          const customerResponse = await apiRequest('POST', '/api/admin/customers', {
-            name: customerName,
-            email: customerEmail,
-            phone: '',
-            address: '',
-            city: '',
-            state: '',
-            zipCode: ''
-          });
-          if (customerResponse.ok) {
-            const customer = await customerResponse.json();
-            customerId = customer.id;
-          }
-        } catch (error) {
-          console.warn('Erro ao criar cliente, usando dados básicos');
-        }
-      }
-
-      // Se não conseguiu criar cliente, usar um ID padrão ou criar um simples
-      if (!customerId) {
-        customerId = 'guest-' + Date.now();
-      }
-
-      // Criar a avaliação
+      // Criar a avaliação diretamente, sem criar cliente
       const response = await apiRequest('POST', `/api/products/${productId}/reviews`, {
-        customerId,
+        customerName: customerName,
+        customerPhone: customerPhone || null,
         rating,
-        title: title || null,
         comment: comment || null,
+        recommendation: recommendation || null,
         isVerifiedPurchase: false
       });
       
-      if (!response.ok) throw new Error('Failed to submit review');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Erro ao enviar avaliação');
+      }
       return response.json();
     },
     onSuccess: () => {
       // Limpar formulário
       setRating(0);
-      setTitle('');
       setComment('');
       setCustomerName('');
-      setCustomerEmail('');
+      setCustomerPhone('');
+      setRecommendation('');
       
       // Invalidar queries para atualizar as avaliações
       queryClient.invalidateQueries({ queryKey: [`/api/products/${productId}/reviews`] });
       queryClient.invalidateQueries({ queryKey: ['/api/products'] });
       
-      alert('Avaliação enviada com sucesso! Aguarde aprovação.');
+      // Mensagem mais descontraída
+      alert('🎉 Sua avaliação foi enviada com sucesso! \n😊 Obrigado por compartilhar sua experiência conosco!');
       
       if (onReviewSubmitted) {
         onReviewSubmitted();
@@ -111,12 +89,17 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
       return;
     }
 
+    if (!recommendation) {
+      alert('Por favor, informe se você recomendaria este produto');
+      return;
+    }
+
     submitReviewMutation.mutate({
       rating,
-      title,
       comment,
       customerName,
-      customerEmail
+      customerPhone,
+      recommendation
     });
   };
 
@@ -142,15 +125,15 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
   };
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <CardHeader>
-        <CardTitle className="flex items-center">
+    <Card className="w-full">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center text-lg">
           <Star className="h-5 w-5 text-yellow-400 mr-2" />
-          Avaliar: {productName}
+          Avalie este produto
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           {/* Rating com estrelas */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -178,48 +161,65 @@ export function ReviewForm({ productId, productName, onReviewSubmitted }: Review
             />
           </div>
 
-          {/* Email (opcional) */}
+          {/* Telefone (opcional) */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Seu email (opcional)
+              Seu telefone (opcional)
             </label>
             <Input
-              type="email"
-              value={customerEmail}
-              onChange={(e) => setCustomerEmail(e.target.value)}
-              placeholder="seu@email.com"
+              type="tel"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              placeholder="(00) 00000-0000"
             />
           </div>
 
-          {/* Título da avaliação */}
+          {/* Comentário sobre o produto */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Título da sua avaliação
-            </label>
-            <Input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex: Produto excelente!"
-              maxLength={100}
-            />
-          </div>
-
-          {/* Comentário */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Conte sua experiência
+              O que você achou do produto?
             </label>
             <Textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="Descreva sua experiência com o produto, qualidade, entrega, etc."
-              rows={4}
-              maxLength={500}
+              placeholder="Conte sua experiência com o produto, qualidade, entrega, etc."
+              rows={3}
+              maxLength={300}
             />
             <p className="text-xs text-gray-500 mt-1">
-              {comment.length}/500 caracteres
+              {comment.length}/300 caracteres
             </p>
+          </div>
+
+          {/* Recomendação */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Você recomendaria este produto? *
+            </label>
+            <div className="flex gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="recommendation"
+                  value="sim"
+                  checked={recommendation === 'sim'}
+                  onChange={(e) => setRecommendation(e.target.value as 'sim')}
+                  className="mr-2"
+                />
+                <span className="text-green-600 font-medium">👍 Sim, recomendo!</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="recommendation"
+                  value="nao"
+                  checked={recommendation === 'nao'}
+                  onChange={(e) => setRecommendation(e.target.value as 'nao')}
+                  className="mr-2"
+                />
+                <span className="text-red-600 font-medium">👎 Não recomendo</span>
+              </label>
+            </div>
           </div>
 
           {/* Botão de envio */}
@@ -326,7 +326,19 @@ export function ReviewList({ productId }: ReviewListProps) {
             </div>
             
             {review.title && (
-              <h4 className="font-medium text-gray-900 mb-2">{review.title}</h4>
+              <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
+                {review.title}
+                {review.title.includes('👍') && (
+                  <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                    Recomenda
+                  </span>
+                )}
+                {review.title.includes('👎') && (
+                  <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full">
+                    Não Recomenda
+                  </span>
+                )}
+              </h4>
             )}
             
             {review.comment && (

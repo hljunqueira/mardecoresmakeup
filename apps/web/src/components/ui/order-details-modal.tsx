@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useOrderIntegration } from "@/hooks/use-order-integration";
+import { OrderWhatsAppDialog } from "@/components/ui/order-whatsapp-dialog";
+import { AddPhoneDialog } from "@/components/ui/add-phone-dialog";
 import { 
   User, 
   Phone, 
@@ -18,7 +21,8 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
-  MapPin
+  MapPin,
+  MessageCircle
 } from "lucide-react";
 import type { Order, OrderItem, Customer } from "@shared/schema";
 
@@ -33,17 +37,93 @@ type OrderWithDetails = Order & {
   items?: OrderItem[];
 };
 
+// Tipo estendido para itens com dados do produto
+type OrderItemWithProduct = OrderItem & {
+  productName?: string;
+  product?: {
+    name: string;
+    images?: string[];
+  };
+};
+
 export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModalProps) {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
+  const {
+    completeOrder,
+    cancelOrder,
+    isCompleting,
+    isCancelling,
+  } = useOrderIntegration();
+  
+  // Estado para controlar o modal do WhatsApp
+  const [isWhatsAppDialogOpen, setIsWhatsAppDialogOpen] = useState(false);
+  
+  // Estado para o modal de adicionar telefone
+  const [isAddPhoneDialogOpen, setIsAddPhoneDialogOpen] = useState(false);
+  
+  // Estado para os itens do pedido para WhatsApp
+  const [whatsAppOrderItems, setWhatsAppOrderItems] = useState<OrderItemWithProduct[]>([]);
+  
   // Buscar dados do pedido
   const { data: order, isLoading } = useQuery<OrderWithDetails>({
     queryKey: ["/api/admin/orders", orderId],
     enabled: isOpen && !!orderId,
   });
+  
+  // Função para abrir WhatsApp (com ou sem telefone)
+  const openWhatsAppDialog = () => {
+    const customerPhone = customer?.phone || order?.customerPhone;
+    
+    if (!customerPhone) {
+      // Se não tem telefone, abrir modal para adicionar
+      setIsAddPhoneDialogOpen(true);
+    } else {
+      // Buscar os itens do pedido antes de abrir o WhatsApp
+      if (order?.id) {
+        fetch(`/api/admin/orders/${order.id}/items`)
+          .then(res => res.json())
+          .then(items => {
+            const orderWithItems = {
+              ...order,
+              items: items
+            };
+            // Atualizar estado dos itens para WhatsApp
+            setWhatsAppOrderItems(items);
+            setIsWhatsAppDialogOpen(true);
+          })
+          .catch(err => {
+            console.error('Erro ao buscar itens:', err);
+            // Abrir mesmo sem itens
+            setIsWhatsAppDialogOpen(true);
+          });
+      } else {
+        setIsWhatsAppDialogOpen(true);
+      }
+    }
+  };
+  
+  // Função chamada após adicionar telefone
+  const handlePhoneAdded = (phone: string) => {
+    // Abrir modal do WhatsApp após adicionar telefone
+    if (order?.id) {
+      fetch(`/api/admin/orders/${order.id}/items`)
+        .then(res => res.json())
+        .then(items => {
+          // Atualizar estado dos itens para WhatsApp
+          setWhatsAppOrderItems(items);
+          setIsWhatsAppDialogOpen(true);
+        })
+        .catch(err => {
+          console.error('Erro ao buscar itens após telefone:', err);
+          setIsWhatsAppDialogOpen(true);
+        });
+    } else {
+      setIsWhatsAppDialogOpen(true);
+    }
+  };
 
   // Buscar itens do pedido
-  const { data: orderItems } = useQuery<OrderItem[]>({
+  const { data: orderItems } = useQuery<OrderItemWithProduct[]>({
     queryKey: ["/api/admin/orders", orderId, "items"],
     enabled: isOpen && !!orderId,
   });
@@ -52,46 +132,6 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
   const { data: customer } = useQuery<Customer>({
     queryKey: ["/api/admin/customers", order?.customerId],
     enabled: isOpen && !!order?.customerId,
-  });
-
-  // Buscar dados do cliente
-  // Mutations para ações dos pedidos
-  const confirmOrderMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`/api/admin/orders/${id}/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) throw new Error("Erro ao confirmar pedido");
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Pedido confirmado!",
-        description: "O pedido foi confirmado com sucesso.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/orders"] });
-      onClose();
-    },
-  });
-
-  const cancelOrderMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`/api/admin/orders/${id}/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      if (!response.ok) throw new Error("Erro ao cancelar pedido");
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({
-        title: "Pedido cancelado!",
-        description: "O pedido foi cancelado com sucesso.",
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/orders"] });
-      onClose();
-    },
   });
 
   const formatCurrency = (value: string | number) => {
@@ -110,6 +150,24 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
   const formatDateTime = (dateString: string | Date) => {
     const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
     return date.toLocaleString('pt-BR');
+  };
+
+  // Função para formatar número do pedido com prefixo baseado no tipo
+  const formatOrderNumber = (order: Order) => {
+    const orderNumber = order.orderNumber || order.id;
+    
+    if (order.paymentMethod === 'credit') {
+      // Para crediário, usar prefixo CRE
+      const number = orderNumber.replace('PED', '').padStart(4, '0');
+      return `CRE${number}`;
+    } else {
+      // Para pedidos à vista, manter PED ou usar PED se não tiver
+      if (orderNumber.startsWith('PED')) {
+        return orderNumber;
+      } else {
+        return `PED${orderNumber.padStart(4, '0')}`;
+      }
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -164,7 +222,7 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
                 <div className="flex justify-between items-start">
                   <div>
                     <CardTitle className="text-xl text-petrol-700">
-                      Pedido #{order.orderNumber}
+                      Pedido #{formatOrderNumber(order)}
                     </CardTitle>
                     <p className="text-sm text-gray-600 mt-1">
                       Criado em {formatDateTime(order.createdAt || '')}
@@ -201,6 +259,7 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
                          order.paymentMethod === 'pix' ? 'PIX' :
                          order.paymentMethod === 'cartao' ? 'Cartão' :
                          order.paymentMethod === 'dinheiro' ? 'Dinheiro' :
+                         order.paymentMethod === 'cash' ? 'Dinheiro' :
                          order.paymentMethod || 'N/A'}
                       </p>
                     </div>
@@ -312,7 +371,7 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
                       <div key={item.id || index} className="flex justify-between items-center p-4 border rounded-lg hover:bg-gray-50">
                         <div className="flex-1">
                           <h4 className="font-semibold text-petrol-700">
-                            Produto ID: {item.productId}
+                            {item.productName || `Produto ID: ${item.productId}`}
                           </h4>
                           <p className="text-sm text-gray-600">
                             Quantidade: {item.quantity} × {formatCurrency(item.unitPrice || 0)}
@@ -375,37 +434,61 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
             </Card>
 
             {/* Ações */}
-            <div className="flex justify-end space-x-3 pt-4">
-              <Button
-                variant="outline"
-                onClick={onClose}
-                className="border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                Fechar
-              </Button>
+            <div className="flex justify-between space-x-3 pt-4">
+              <div className="flex space-x-3">
+                <Button
+                  variant="outline"
+                  onClick={onClose}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  Fechar
+                </Button>
+                
+                {/* Botão WhatsApp - sempre disponível */}
+                <Button
+                  variant="outline"
+                  onClick={openWhatsAppDialog}
+                  className="bg-green-50 border-green-300 text-green-700 hover:bg-green-100"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  {(customer?.phone || order?.customerPhone) ? 'Enviar WhatsApp' : 'Adicionar Tel + WhatsApp'}
+                </Button>
+              </div>
               
-              {order.status === 'pending' && (
-                <>
-                  <Button
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => confirmOrderMutation.mutate(order.id)}
-                    disabled={confirmOrderMutation.isPending}
-                  >
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                    {confirmOrderMutation.isPending ? 'Confirmando...' : 'Confirmar Pedido'}
-                  </Button>
-                  
-                  <Button
-                    variant="outline"
-                    className="border-red-300 text-red-700 hover:bg-red-50"
-                    onClick={() => cancelOrderMutation.mutate(order.id)}
-                    disabled={cancelOrderMutation.isPending}
-                  >
-                    <XCircle className="h-4 w-4 mr-2" />
-                    {cancelOrderMutation.isPending ? 'Cancelando...' : 'Cancelar'}
-                  </Button>
-                </>
-              )}
+              <div className="flex space-x-3">
+                {order.status === 'pending' && (
+                  <>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => {
+                        completeOrder(order.id);
+                        // Após concluir, mostrar automaticamente o modal do WhatsApp
+                        setTimeout(() => {
+                          openWhatsAppDialog();
+                        }, 1000);
+                        onClose();
+                      }}
+                      disabled={isCompleting}
+                    >
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      {isCompleting ? 'Concluindo...' : 'Concluir Pedido'}
+                    </Button>
+                    
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={() => {
+                        cancelOrder({ orderId: order.id });
+                        onClose();
+                      }}
+                      disabled={isCancelling}
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      {isCancelling ? 'Cancelando...' : 'Cancelar Venda'}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -415,6 +498,28 @@ export function OrderDetailsModal({ isOpen, onClose, orderId }: OrderDetailsModa
           </div>
         )}
       </DialogContent>
+      
+      {/* Modal do WhatsApp */}
+      {order && (
+        <OrderWhatsAppDialog
+          isOpen={isWhatsAppDialogOpen}
+          onOpenChange={setIsWhatsAppDialogOpen}
+          order={order}
+          customer={customer}
+          orderItems={whatsAppOrderItems.length > 0 ? whatsAppOrderItems : orderItems}
+        />
+      )}
+      
+      {/* Modal para Adicionar Telefone */}
+      {order && (
+        <AddPhoneDialog
+          isOpen={isAddPhoneDialogOpen}
+          onOpenChange={setIsAddPhoneDialogOpen}
+          order={order}
+          customer={customer}
+          onPhoneAdded={handlePhoneAdded}
+        />
+      )}
     </Dialog>
   );
 }

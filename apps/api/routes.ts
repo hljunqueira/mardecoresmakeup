@@ -6,6 +6,18 @@ import { z } from "zod";
 import * as crypto from "crypto";
 import { upload, imageUploadService } from "./upload-service";
 import { GoogleImagesService } from "./services/google-images";
+import { financialWebhook } from "./services/financial-webhook";
+import { financialSyncJob } from "./services/financial-sync-job";
+// Adicionar imports do Drizzle para verificação de dependências
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+import * as schema from '@shared/schema';
+import { eq, sql, and } from 'drizzle-orm';
+
+// Inicializar conexão do banco para verificação de dependências
+const connectionUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
+const client = postgres(connectionUrl);
+const db = drizzle(client, { schema });
 
 // Função para hash da senha (mesma usada no cadastro)
 function hashPassword(password: string): string {
@@ -16,6 +28,121 @@ const adminAuthSchema = z.object({
   username: z.string(),
   password: z.string(),
 });
+
+// ================================================================
+// FUNÇÃO PARA FINALIZAR AUTOMATICAMENTE RESERVAS DE CREDIÁRIO
+// ================================================================
+
+/**
+ * Finaliza automaticamente todas as reservas ativas de uma conta de crediário quitada
+ * Reduz estoque, cria transações de venda e marca reservas como vendidas
+ */
+async function finalizeCreditAccountReservations(creditAccountId: string) {
+  console.log('🎯 Buscando reservas ativas para conta:', creditAccountId);
+  
+  try {
+    // 1. Buscar todas as reservas ativas da conta de crediário
+    const reservations = await storage.getReservationsByCreditAccount(creditAccountId);
+    const activeReservations = reservations.filter(r => r.status === 'active');
+    
+    console.log(`📎 Encontradas ${activeReservations.length} reservas ativas para finalizar`);
+    
+    if (activeReservations.length === 0) {
+      return {
+        reservationsProcessed: 0,
+        transactionsCreated: 0,
+        message: 'Nenhuma reserva ativa encontrada'
+      };
+    }
+    
+    let transactionsCreated = 0;
+    const processedReservations = [];
+    
+    // 2. Processar cada reserva individualmente
+    for (const reservation of activeReservations) {
+      try {
+        console.log(`🔄 Processando reserva ${reservation.id} - Produto: ${reservation.productId}, Quantidade: ${reservation.quantity}`);
+        
+        // 2.1. Buscar produto atual
+        const product = await storage.getProduct(reservation.productId);
+        if (!product) {
+          console.error(`❌ Produto ${reservation.productId} não encontrado`);
+          continue;
+        }
+        
+        // 2.2. NOTA: Estoque já foi reduzido quando o produto foi adicionado ao crediário
+        // Agora apenas criamos a transação de venda sem mexer no estoque
+        const reservationQuantity = parseInt(reservation.quantity.toString());
+        
+        console.log(`💰 Criando transação de venda para "${product.name}" (${reservationQuantity}x) - Estoque já foi reduzido anteriormente`);
+        
+        // 2.3. Criar transação de venda
+        const unitPrice = parseFloat(reservation.unitPrice.toString());
+        const totalAmount = unitPrice * reservationQuantity;
+        
+        const transactionData = {
+          type: 'income' as const,
+          amount: totalAmount.toString(),
+          description: `Venda Crediário - ${product.name} (${reservationQuantity}x) - Conta Quitada`,
+          category: 'Crediário',
+          status: 'completed' as const,
+          date: new Date(),
+          metadata: {
+            productId: reservation.productId,
+            productName: product.name,
+            quantity: reservationQuantity,
+            unitPrice: unitPrice,
+            creditAccountId: creditAccountId,
+            reservationId: reservation.id,
+            type: 'credit_finalization',
+            source: 'auto_finalization'
+          }
+        };
+        
+        const transaction = await storage.createTransaction(transactionData);
+        transactionsCreated++;
+        
+        console.log(`💰 Transação criada: ${transaction.id} - R$ ${totalAmount.toFixed(2)}`);
+        
+        // 2.4. Marcar reserva como vendida
+        await storage.updateReservation(reservation.id, {
+          status: 'sold',
+          completedAt: new Date()
+        });
+        
+        processedReservations.push({
+          reservationId: reservation.id,
+          productId: reservation.productId,
+          productName: product.name,
+          quantity: reservationQuantity,
+          amount: totalAmount,
+          transactionId: transaction.id
+        });
+        
+        console.log(`✅ Reserva ${reservation.id} finalizada com sucesso`);
+        
+      } catch (reservationError) {
+        console.error(`❌ Erro ao processar reserva ${reservation.id}:`, reservationError);
+        // Continua com as outras reservas
+      }
+    }
+    
+    const result = {
+      reservationsProcessed: processedReservations.length,
+      transactionsCreated,
+      totalAmount: processedReservations.reduce((sum, item) => sum + item.amount, 0),
+      processedReservations,
+      message: `${processedReservations.length} reservas finalizadas e transacões de venda criadas (estoque já havia sido reduzido)`
+    };
+    
+    console.log('✅ Finalização automática concluída:', result);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Erro na finalização automática de reservas:', error);
+    throw error;
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
 
@@ -554,25 +681,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/admin/products/:id", async (req, res) => {
     try {
-      // Primeiro, buscar o produto para obter as imagens
-      const product = await storage.getProduct(req.params.id);
+      const productId = req.params.id;
+      console.log('🗑️ Iniciando deleção do produto:', productId);
       
-      if (product && product.images && product.images.length > 0) {
+      // Primeiro, buscar o produto para obter as imagens
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Product not found" });
+      }
+      
+      // Verificar dependências que impedem a deleção
+      console.log('🔍 Verificando dependências do produto...');
+      const dependencies = {
+        orderItems: 0,
+        creditAccountItems: 0,
+        reservations: 0
+      };
+      
+      try {
+        // Verificar itens de pedidos
+        console.log('📦 Verificando order_items...');
+        const orderItemsCount = await client`
+          SELECT COUNT(*) as count FROM order_items WHERE product_id = ${productId}
+        `;
+        dependencies.orderItems = parseInt(orderItemsCount[0]?.count || '0');
+        console.log('📊 Order items encontrados:', dependencies.orderItems);
+        
+        // Verificar itens de crediário
+        console.log('💳 Verificando credit_account_items...');
+        const creditItemsCount = await client`
+          SELECT COUNT(*) as count FROM credit_account_items WHERE product_id = ${productId}
+        `;
+        dependencies.creditAccountItems = parseInt(creditItemsCount[0]?.count || '0');
+        console.log('📊 Credit items encontrados:', dependencies.creditAccountItems);
+        
+        // Verificar reservas ativas
+        console.log('📋 Verificando reservations...');
+        const reservationsCount = await client`
+          SELECT COUNT(*) as count FROM reservations WHERE product_id = ${productId} AND status = 'active'
+        `;
+        dependencies.reservations = parseInt(reservationsCount[0]?.count || '0');
+        console.log('📊 Reservations encontradas:', dependencies.reservations);
+        
+        console.log('🔍 Dependências totais encontradas:', dependencies);
+        
+        // Se há dependências, retornar erro informativo
+        const totalDependencies = dependencies.orderItems + dependencies.creditAccountItems + dependencies.reservations;
+        if (totalDependencies > 0) {
+          const errorDetails = [];
+          if (dependencies.orderItems > 0) {
+            errorDetails.push(`${dependencies.orderItems} pedido(s)`);
+          }
+          if (dependencies.creditAccountItems > 0) {
+            errorDetails.push(`${dependencies.creditAccountItems} conta(s) de crediário`);
+          }
+          if (dependencies.reservations > 0) {
+            errorDetails.push(`${dependencies.reservations} reserva(s) ativa(s)`);
+          }
+          
+          return res.status(400).json({ 
+            message: "Não é possível deletar este produto",
+            details: `O produto está sendo usado em: ${errorDetails.join(', ')}.`,
+            dependencies: dependencies,
+            suggestion: "Para deletar este produto, você deve primeiro remover ou cancelar essas dependências."
+          });
+        }
+        
+      } catch (depError) {
+        console.error('❌ Erro ao verificar dependências:', depError);
+        return res.status(500).json({ 
+          message: "Erro ao verificar dependências do produto",
+          error: depError instanceof Error ? depError.message : 'Erro desconhecido'
+        });
+      }
+      
+      // Se não há dependências, prosseguir com a deleção
+      if (product.images && product.images.length > 0) {
         // Deletar as imagens do storage antes de deletar o produto
         await imageUploadService.deleteMultipleImages(product.images);
         console.log('🗑️ Imagens do produto deletadas:', product.images.length);
       }
       
-      const deleted = await storage.deleteProduct(req.params.id);
+      // Deletar imagens do banco de dados
+      try {
+        const deletedImages = await client`
+          DELETE FROM product_images WHERE product_id = ${productId}
+        `;
+        console.log('🗑️ Metadados de imagens removidos do banco:', deletedImages.count);
+      } catch (imageError) {
+        console.warn('⚠️ Erro ao deletar metadados de imagens:', imageError);
+      }
+      
+      const deleted = await storage.deleteProduct(productId);
       if (!deleted) {
         return res.status(404).json({ message: "Product not found" });
       }
       
-      console.log('✅ Produto deletado:', req.params.id);
-      res.json({ success: true });
+      console.log('✅ Produto deletado com sucesso:', productId);
+      res.json({ 
+        success: true, 
+        message: "Produto deletado com sucesso",
+        productId: productId
+      });
+      
     } catch (error) {
       console.error('❌ Erro ao deletar produto:', error);
-      res.status(500).json({ message: "Failed to delete product" });
+      res.status(500).json({ 
+        message: "Falha ao deletar produto",
+        error: error instanceof Error ? error.message : 'Erro desconhecido'
+      });
     }
   });
 
@@ -647,23 +864,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log('🔍 POST /api/admin/customers - Dados recebidos:', JSON.stringify(req.body, null, 2));
       
-      // Validação básica
-      const { name, email } = req.body;
+      // Validação básica - apenas nome é obrigatório
+      const { name } = req.body;
       
-      if (!name || !email) {
+      if (!name || !name.trim()) {
         return res.status(400).json({ 
-          message: "Nome e email são obrigatórios",
-          required: ['name', 'email']
+          message: "Nome é obrigatório",
+          required: ['name']
         });
       }
       
-      // Verificar se já existe cliente com esse email
-      const existingCustomer = await storage.getCustomerByEmail(email);
-      if (existingCustomer) {
-        return res.status(409).json({ 
-          message: "Já existe um cliente com este email",
-          existingCustomerId: existingCustomer.id
-        });
+      // Se email foi fornecido, verificar se já existe
+      if (req.body.email) {
+        const existingCustomer = await storage.getCustomerByEmail(req.body.email);
+        if (existingCustomer) {
+          return res.status(409).json({ 
+            message: "Já existe um cliente com este email",
+            existingCustomerId: existingCustomer.id
+          });
+        }
       }
       
       const customer = await storage.createCustomer(req.body);
@@ -772,12 +991,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { accountId } = req.params;
       const { productId, productName, quantity, unitPrice } = req.body;
       
+      console.log('💳 Adicionando produto à conta:', { accountId, productId, quantity });
+      
+      // 0. 📦 REDUZIR ESTOQUE PRIMEIRO (NOVO FLUXO)
+      console.log('📦 Reduzindo estoque do produto antes de adicionar à conta...');
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ message: "Produto não encontrado" });
+      }
+      
+      const currentStock = product.stock || 0;
+      const newStock = currentStock - quantity;
+      
+      console.log(`📦 Estoque de "${product.name}": ${currentStock} → ${newStock}`);
+      
+      if (newStock < 0) {
+        return res.status(400).json({ 
+          message: `Estoque insuficiente para ${product.name}`,
+          available: currentStock,
+          requested: quantity
+        });
+      }
+      
+      // Atualizar estoque do produto
+      await storage.updateProduct(productId, {
+        stock: newStock
+      });
+      
+      console.log('✅ Estoque reduzido com sucesso');
+      
       // Calcular preço total
       const totalPrice = quantity * unitPrice;
       
       // Buscar a conta atual
       const account = await storage.getCreditAccount(accountId);
       if (!account) {
+        // Se houve erro, tentar reverter o estoque
+        try {
+          await storage.updateProduct(productId, { stock: currentStock });
+          console.log('❌ Estoque revertido devido a conta não encontrada');
+        } catch (revertError) {
+          console.error('❌ Erro ao reverter estoque:', revertError);
+        }
         return res.status(404).json({ message: "Credit account not found" });
       }
       
@@ -792,7 +1047,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: {
           source: 'manual',
           addedAt: new Date().toISOString(),
-          addedBy: 'admin' // TODO: Identificar usuário logado
+          addedBy: 'admin', // TODO: Identificar usuário logado
+          stockReduced: {
+            previousStock: currentStock,
+            newStock: newStock,
+            quantityReduced: quantity
+          }
         }
       });
       
@@ -807,10 +1067,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         remainingAmount: newRemainingAmount.toString()
       });
       
+      console.log('✅ Produto adicionado à conta com estoque reduzido');
+      
       res.json({
         success: true,
-        message: "Produto adicionado à conta com sucesso",
+        message: "Produto adicionado à conta com sucesso e estoque reduzido",
         newTotalAmount,
+        stockUpdate: {
+          productId,
+          productName: product.name,
+          previousStock: currentStock,
+          newStock: newStock,
+          quantityReduced: quantity
+        },
         productAdded: {
           productId,
           productName,
@@ -1583,6 +1852,241 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
+  // ========================================
+  // 📊 API CONSOLIDADA DE MÉTRICAS FINANCEIRAS
+  // ========================================
+  
+  app.get("/api/admin/financial/consolidated", async (req, res) => {
+    try {
+      const { 
+        period = '30', 
+        startDate, 
+        endDate,
+        includeManualTransactions = true,
+        includeOrders = true,
+        includeCreditAccounts = true 
+      } = req.query;
+      
+      console.log('📊 Gerando métricas financeiras consolidadas:', { period, includeManualTransactions, includeOrders, includeCreditAccounts });
+      
+      // ===== BUSCAR TODOS OS DADOS =====
+      const [transactions, orders, creditAccounts, creditPayments, customers, products] = await Promise.all([
+        storage.getAllTransactions(),
+        storage.getAllOrders(),
+        storage.getAllCreditAccounts(),
+        storage.getAllCreditAccounts(), // TODO: Implementar getCreditPayments
+        storage.getAllCustomers(),
+        storage.getAllProducts()
+      ]);
+      
+      console.log('📊 Dados coletados:', {
+        transactions: transactions.length,
+        orders: orders.length,
+        creditAccounts: creditAccounts.length,
+        customers: customers.length
+      });
+      
+      // ===== FILTROS DE DATA =====
+      const now = new Date();
+      const periodDays = parseInt(period as string);
+      const filterStartDate = startDate ? new Date(startDate as string) : new Date(now.getTime() - (periodDays * 24 * 60 * 60 * 1000));
+      const filterEndDate = endDate ? new Date(endDate as string) : now;
+      
+      // ===== TRANSAÇÕES MANUAIS FILTRADAS =====
+      const filteredTransactions = transactions.filter(t => {
+        if (!includeManualTransactions) return false;
+        if (!t.createdAt) return false;
+        const transactionDate = new Date(t.createdAt.toString());
+        return transactionDate >= filterStartDate && transactionDate <= filterEndDate;
+      });
+      
+      // ===== PEDIDOS FILTRADOS =====
+      const filteredOrders = orders.filter(o => {
+        if (!includeOrders) return false;
+        const orderDate = new Date(o.createdAt);
+        return orderDate >= filterStartDate && orderDate <= filterEndDate && 
+               (o.status === 'confirmed' || o.status === 'completed');
+      });
+      
+      console.log('📊 Debug pedidos:', {
+        totalOrders: orders.length,
+        filteredOrders: filteredOrders.length,
+        ordersSample: orders.slice(0, 3).map(o => ({ id: o.id, status: o.status, paymentMethod: o.paymentMethod, total: o.total }))
+      });
+      
+      // ===== CONTAS DE CREDIÁRIO ATIVAS =====
+      const activeCreditAccounts = creditAccounts.filter(ca => {
+        if (!includeCreditAccounts) return false;
+        return ca.status === 'active';
+      });
+      
+      // ===== CÁLCULO DAS MÉTRICAS PRINCIPAIS =====
+      
+      // Receitas das transações manuais
+      const manualRevenue = filteredTransactions
+        .filter(t => t.type === 'income' && t.status === 'completed')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      // Receitas dos pedidos à vista (PIX, cartão, dinheiro)
+      const cashOrdersRevenue = filteredOrders
+        .filter(o => o.paymentMethod && ['pix', 'cartao', 'dinheiro', 'cash'].includes(o.paymentMethod.toLowerCase()))
+        .reduce((sum, o) => sum + parseFloat(o.total.toString()), 0);
+      
+      console.log('💰 Debug receitas à vista:', {
+        cashOrders: filteredOrders.filter(o => o.paymentMethod && ['pix', 'cartao', 'dinheiro', 'cash'].includes(o.paymentMethod.toLowerCase())).length,
+        cashOrdersRevenue,
+        paymentMethods: filteredOrders.map(o => o.paymentMethod)
+      });
+      
+      // Pagamentos recebidos do crediário (aproximação)
+      const creditRevenue = activeCreditAccounts
+        .reduce((sum, ca) => sum + parseFloat(ca.paidAmount?.toString() || '0'), 0);
+      
+      // Total de receitas
+      const totalRevenue = manualRevenue + cashOrdersRevenue + creditRevenue;
+      
+      // Despesas das transações manuais
+      const totalExpenses = filteredTransactions
+        .filter(t => t.type === 'expense' && t.status === 'completed')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      // Lucro líquido
+      const netProfit = totalRevenue - totalExpenses;
+      
+      // ===== CONTAS A RECEBER =====
+      const pendingReceivables = filteredTransactions
+        .filter(t => t.type === 'income' && t.status === 'pending')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      const creditAccountsBalance = activeCreditAccounts
+        .reduce((sum, ca) => sum + parseFloat(ca.remainingAmount?.toString() || '0'), 0);
+      
+      // ===== CONTAS A PAGAR =====
+      const pendingPayables = filteredTransactions
+        .filter(t => t.type === 'expense' && t.status === 'pending')
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      // ===== ANÁLISE DE CRESCIMENTO =====
+      const previousPeriodStart = new Date(filterStartDate.getTime() - (periodDays * 24 * 60 * 60 * 1000));
+      const previousPeriodTransactions = transactions.filter(t => {
+        if (!t.createdAt) return false;
+        const transactionDate = new Date(t.createdAt.toString());
+        return transactionDate >= previousPeriodStart && transactionDate < filterStartDate &&
+               t.type === 'income' && t.status === 'completed';
+      });
+      
+      const previousPeriodRevenue = previousPeriodTransactions
+        .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      
+      const growthPercentage = previousPeriodRevenue > 0 
+        ? ((totalRevenue - previousPeriodRevenue) / previousPeriodRevenue) * 100 
+        : 0;
+      
+      // ===== ALERTAS =====
+      const alerts: any[] = [];
+      
+      // Alerta de contas vencidas
+      const overdueAccounts = activeCreditAccounts.filter(ca => {
+        const nextPayment = ca.nextPaymentDate ? new Date(ca.nextPaymentDate) : null;
+        return nextPayment && nextPayment < now;
+      });
+      
+      if (overdueAccounts.length > 0) {
+        const overdueAmount = overdueAccounts.reduce((sum, ca) => 
+          sum + parseFloat(ca.remainingAmount?.toString() || '0'), 0);
+        
+        alerts.push({
+          type: 'overdue',
+          severity: 'high',
+          title: 'Contas Vencidas',
+          message: `${overdueAccounts.length} conta(s) em atraso`,
+          amount: overdueAmount,
+          actionRequired: true
+        });
+      }
+      
+      // ===== RESPOSTA CONSOLIDADA =====
+      const consolidatedMetrics = {
+        // Métricas principais
+        totalRevenue,
+        totalExpenses,
+        netProfit,
+        
+        // Receitas por fonte
+        revenueBreakdown: {
+          manualTransactions: manualRevenue,
+          cashOrders: cashOrdersRevenue,
+          creditAccounts: creditRevenue
+        },
+        
+        // Contas a receber
+        accountsReceivable: {
+          pending: pendingReceivables,
+          creditAccountsBalance,
+          overdue: overdueAccounts.reduce((sum, ca) => 
+            sum + parseFloat(ca.remainingAmount?.toString() || '0'), 0)
+        },
+        
+        // Contas a pagar
+        accountsPayable: {
+          pending: pendingPayables,
+          suppliers: filteredTransactions
+            .filter(t => t.type === 'expense' && t.category === 'supplier' && t.status === 'pending')
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0),
+          operational: filteredTransactions
+            .filter(t => t.type === 'expense' && t.category === 'operational' && t.status === 'pending')
+            .reduce((sum, t) => sum + parseFloat(t.amount), 0)
+        },
+        
+        // Análise temporal
+        periodAnalysis: {
+          period,
+          startDate: filterStartDate.toISOString(),
+          endDate: filterEndDate.toISOString(),
+          monthlyComparison: {
+            currentMonth: totalRevenue,
+            previousMonth: previousPeriodRevenue,
+            growth: growthPercentage
+          }
+        },
+        
+        // Alertas
+        alerts,
+        
+        // Performance
+        performance: {
+          averageOrderValue: filteredOrders.length > 0 
+            ? filteredOrders.reduce((sum, o) => sum + parseFloat(o.total.toString()), 0) / filteredOrders.length 
+            : 0,
+          totalOrders: filteredOrders.length,
+          activeCreditAccounts: activeCreditAccounts.length
+        },
+        
+        // Metadata
+        metadata: {
+          generatedAt: now.toISOString(),
+          dataSource: {
+            transactions: filteredTransactions.length,
+            orders: filteredOrders.length,
+            creditAccounts: activeCreditAccounts.length
+          }
+        }
+      };
+      
+      console.log('✅ Métricas consolidadas geradas:', {
+        totalRevenue,
+        totalExpenses,
+        netProfit,
+        alertsCount: alerts.length
+      });
+      
+      res.json(consolidatedMetrics);
+    } catch (error) {
+      console.error('❌ Erro ao gerar métricas consolidadas:', error);
+      res.status(500).json({ message: "Failed to generate consolidated financial metrics" });
+    }
+  });
+
   app.get("/api/admin/financial/summary", async (req, res) => {
     try {
       const transactions = await storage.getAllTransactions();
@@ -1624,6 +2128,210 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch financial summary" });
+    }
+  });
+
+  // ========================================
+  // 🔍 API DE DADOS FINANCEIROS FILTRADOS
+  // ========================================
+  
+  app.get("/api/admin/financial/filtered", async (req, res) => {
+    try {
+      const {
+        period,
+        startDate,
+        endDate,
+        type,
+        status,
+        source,
+        minAmount,
+        maxAmount
+      } = req.query;
+      
+      console.log('🔍 Aplicando filtros financeiros:', {
+        period, startDate, endDate, type, status, source, minAmount, maxAmount
+      });
+      
+      // Buscar dados de todas as fontes
+      const [transactions, orders, creditAccounts] = await Promise.all([
+        storage.getAllTransactions(),
+        storage.getAllOrders(),
+        storage.getAllCreditAccounts()
+      ]);
+      
+      // Converter dados para formato unificado
+      let unifiedData: any[] = [];
+      
+      // Adicionar transações manuais
+      if (!source || source === 'all' || source === 'manual') {
+        const transactionData = transactions.map(t => ({
+          id: t.id,
+          type: t.type,
+          category: t.category,
+          description: t.description,
+          amount: parseFloat(t.amount),
+          status: t.status,
+          date: t.date || t.createdAt,
+          createdAt: t.createdAt,
+          source: 'manual',
+          dueDate: t.dueDate
+        }));
+        unifiedData = [...unifiedData, ...transactionData];
+      }
+      
+      // Adicionar pedidos à vista
+      if (!source || source === 'all' || source === 'orders') {
+        const orderData = orders
+          .filter(o => o.paymentMethod !== 'credit' && (o.status === 'confirmed' || o.status === 'completed'))
+          .map(o => ({
+            id: o.id,
+            type: 'income',
+            category: 'Vendas',
+            description: `Pedido #${o.id.substring(0, 8)}`,
+            amount: parseFloat(o.total?.toString() || '0'),
+            status: o.status === 'confirmed' || o.status === 'completed' ? 'completed' : 'pending',
+            date: o.createdAt,
+            createdAt: o.createdAt,
+            source: 'orders',
+            paymentMethod: o.paymentMethod
+          }));
+        unifiedData = [...unifiedData, ...orderData];
+      }
+      
+      // Adicionar contas de crediário
+      if (!source || source === 'all' || source === 'credit') {
+        const customers = await storage.getAllCustomers();
+        const customerMap = new Map(customers.map(c => [c.id, c.name]));
+        
+        const creditData = creditAccounts
+          .filter(ca => ca.status === 'active')
+          .map(ca => ({
+            id: ca.id,
+            type: 'income',
+            category: 'Crediário',
+            description: `Conta de crediário - ${customerMap.get(ca.customerId) || 'Cliente não encontrado'}`,
+            amount: parseFloat(ca.totalAmount?.toString() || '0'),
+            status: 'pending',
+            date: ca.createdAt,
+            createdAt: ca.createdAt,
+            source: 'credit',
+            remainingAmount: parseFloat(ca.remainingAmount?.toString() || '0'),
+            paidAmount: parseFloat(ca.paidAmount?.toString() || '0')
+          }));
+        unifiedData = [...unifiedData, ...creditData];
+      }
+      
+      // Aplicar filtros
+      let filteredData = unifiedData;
+      
+      // Filtro de período
+      if (period && period !== 'all') {
+        const now = new Date();
+        let filterStartDate: Date;
+        
+        switch (period) {
+          case 'today':
+            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            break;
+          case 'week':
+            filterStartDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+          case 'month':
+            filterStartDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+            break;
+          case 'quarter':
+            filterStartDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
+            break;
+          case 'year':
+            filterStartDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+            break;
+          case 'custom':
+            if (startDate) {
+              filterStartDate = new Date(startDate as string);
+            } else {
+              filterStartDate = new Date(0); // Início dos tempos se não especificado
+            }
+            break;
+          default:
+            filterStartDate = new Date(0);
+        }
+        
+        const filterEndDate = period === 'custom' && endDate ? new Date(endDate as string) : now;
+        
+        filteredData = filteredData.filter(item => {
+          const itemDate = new Date(item.date || item.createdAt);
+          return itemDate >= filterStartDate && itemDate <= filterEndDate;
+        });
+      }
+      
+      // Filtro de tipo
+      if (type && type !== 'all') {
+        filteredData = filteredData.filter(item => item.type === type);
+      }
+      
+      // Filtro de status
+      if (status && status !== 'all') {
+        filteredData = filteredData.filter(item => item.status === status);
+      }
+      
+      // Filtro de fonte específica
+      if (source && source !== 'all') {
+        filteredData = filteredData.filter(item => item.source === source);
+      }
+      
+      // Filtro de valor mínimo
+      if (minAmount) {
+        const min = parseFloat(minAmount as string);
+        filteredData = filteredData.filter(item => item.amount >= min);
+      }
+      
+      // Filtro de valor máximo
+      if (maxAmount) {
+        const max = parseFloat(maxAmount as string);
+        filteredData = filteredData.filter(item => item.amount <= max);
+      }
+      
+      // Calcular métricas dos dados filtrados
+      const revenue = filteredData
+        .filter(item => item.type === 'income')
+        .reduce((sum, item) => sum + item.amount, 0);
+      
+      const expenses = filteredData
+        .filter(item => item.type === 'expense')
+        .reduce((sum, item) => sum + item.amount, 0);
+      
+      const metrics = {
+        totalFiltered: filteredData.length,
+        revenue,
+        expenses,
+        balance: revenue - expenses,
+        count: filteredData.length
+      };
+      
+      // Ordenar por data mais recente
+      filteredData.sort((a, b) => {
+        const dateA = new Date(a.date || a.createdAt).getTime();
+        const dateB = new Date(b.date || b.createdAt).getTime();
+        return dateB - dateA;
+      });
+      
+      console.log('✅ Filtros aplicados:', {
+        totalItems: unifiedData.length,
+        filteredItems: filteredData.length,
+        revenue,
+        expenses
+      });
+      
+      res.json({
+        transactions: filteredData,
+        metrics,
+        appliedFilters: {
+          period, startDate, endDate, type, status, source, minAmount, maxAmount
+        }
+      });
+    } catch (error) {
+      console.error('❌ Erro ao filtrar dados financeiros:', error);
+      res.status(500).json({ message: "Failed to filter financial data" });
     }
   });
 
@@ -2152,60 +2860,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 🛒 SISTEMA DE PEDIDOS - NOVAS APIS
   // ========================================
 
-  // Gerar número sequencial para pedidos
-  let orderCounter = 1;
+  // Função helper para gerar número de pedido (delegada para storage)
   async function generateOrderNumber(): Promise<string> {
-    // TODO: Implementar busca do último número no banco
-    const paddedNumber = orderCounter.toString().padStart(3, '0');
-    orderCounter++;
-    return `PED${paddedNumber}`;
+    return await storage.generateOrderNumber();
   }
 
-  // Listar todos os pedidos
+  // Listar todos os pedidos com dados completos
   app.get("/api/admin/orders", async (req, res) => {
     try {
       console.log('🛒 Buscando todos os pedidos...');
       
-      const orders = await storage.getAllOrders();
+      const [orders, customers] = await Promise.all([
+        storage.getAllOrders(),
+        storage.getAllCustomers()
+      ]);
       
-      console.log('✅ Pedidos encontrados:', orders.length);
-      res.json(orders);
+      // Enriquecer pedidos com dados do cliente
+      const ordersWithCustomers = orders.map(order => {
+        const customer = customers.find(c => c.id === order.customerId);
+        return {
+          ...order,
+          customer,
+          // Garantir que customerName existe (da relação ou do campo direto)
+          customerName: customer?.name || order.customerName || null,
+          customerPhone: customer?.phone || order.customerPhone || null,
+          customerEmail: customer?.email || order.customerEmail || null
+        };
+      });
+      
+      console.log('✅ Pedidos encontrados:', orders.length, 'com', customers.length, 'clientes');
+      res.json(ordersWithCustomers);
     } catch (error) {
       console.error('❌ Erro ao buscar pedidos:', error);
       res.status(500).json({ message: "Failed to fetch orders" });
     }
   });
 
-  // Buscar pedido por ID
+  // Buscar pedido por ID com detalhes completos
   app.get("/api/admin/orders/:id", async (req, res) => {
     try {
       const { id } = req.params;
-      console.log('🛒 Buscando pedido:', id);
+      console.log('🛒 Buscando pedido completo:', id);
       
-      const order = await storage.getOrder(id);
+      const [order, orderItems, customers, products] = await Promise.all([
+        storage.getOrder(id),
+        storage.getOrderItems(id),
+        storage.getAllCustomers(),
+        storage.getAllProducts()
+      ]);
       
       if (!order) {
         return res.status(404).json({ message: "Order not found" });
       }
       
-      console.log('✅ Pedido encontrado:', order.orderNumber);
-      res.json(order);
+      // Buscar cliente relacionado
+      const customer = customers.find(c => c.id === order.customerId);
+      
+      // Enriquecer itens com dados dos produtos
+      const itemsWithProducts = orderItems.map(item => {
+        const product = products.find(p => p.id === item.productId);
+        return {
+          ...item,
+          product,
+          productName: product?.name || 'Produto não encontrado'
+        };
+      });
+      
+      const orderWithDetails = {
+        ...order,
+        customer,
+        customerName: customer?.name || order.customerName || null,
+        customerPhone: customer?.phone || order.customerPhone || null,
+        customerEmail: customer?.email || order.customerEmail || null,
+        items: itemsWithProducts
+      };
+      
+      console.log('✅ Pedido completo encontrado:', order.orderNumber, 'com', orderItems.length, 'itens');
+      res.json(orderWithDetails);
     } catch (error) {
       console.error('❌ Erro ao buscar pedido:', error);
       res.status(500).json({ message: "Failed to fetch order" });
     }
   });
 
-  // Buscar itens de um pedido
+  // Buscar itens do pedido com dados dos produtos
   app.get("/api/admin/orders/:id/items", async (req, res) => {
     try {
       const { id } = req.params;
       console.log('🛒 Buscando itens do pedido:', id);
       
-      const items = await storage.getOrderItems(id);
+      const [items, products] = await Promise.all([
+        storage.getOrderItems(id),
+        storage.getAllProducts()
+      ]);
       
-      console.log('✅ Itens encontrados:', items.length);
-      res.json(items);
+      // Enriquecer itens com dados dos produtos
+      const itemsWithProducts = items.map(item => {
+        const product = products.find(p => p.id === item.productId);
+        return {
+          ...item,
+          product,
+          productName: product?.name || 'Produto não encontrado',
+          productImage: product?.images?.[0] || null
+        };
+      });
+      
+      console.log('✅ Itens encontrados:', items.length, 'com dados dos produtos');
+      res.json(itemsWithProducts);
     } catch (error) {
       console.error('❌ Erro ao buscar itens do pedido:', error);
       res.status(500).json({ message: "Failed to fetch order items" });
@@ -2218,6 +2979,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('🛒 Criando novo pedido:', req.body);
       
       const { items, ...orderData } = req.body;
+      
+      // 🎯 FLUXO ATUALIZADO: Para crediário, estoque já foi reduzido no frontend
+      // Para pedidos à vista, verificar e reduzir estoque normalmente
+      if (orderData.paymentMethod !== 'credit' && items && items.length > 0) {
+        console.log('💰 Pedido à vista - verificando e reduzindo estoque...');
+        
+        for (const item of items) {
+          const product = await storage.getProduct(item.productId);
+          if (!product) {
+            return res.status(404).json({ 
+              message: `Produto não encontrado: ${item.productName || item.productId}`,
+              productId: item.productId
+            });
+          }
+          
+          const currentStock = product.stock || 0;
+          
+          // Verificar se há estoque suficiente
+          if (currentStock < item.quantity) {
+            return res.status(400).json({ 
+              message: `Estoque insuficiente para ${product.name}. Disponível: ${currentStock}, Solicitado: ${item.quantity}`,
+              productId: item.productId,
+              availableStock: currentStock,
+              requestedQuantity: item.quantity
+            });
+          }
+          
+          // Reduzir estoque
+          const newStock = currentStock - item.quantity;
+          await storage.updateProduct(item.productId, {
+            stock: newStock
+          });
+          
+          console.log(`📦 Produto ${product.name}: ${currentStock} → ${newStock} (reduzido ${item.quantity})`);
+        }
+        
+        console.log('✅ Estoque atualizado para pedido à vista');
+      } else if (orderData.paymentMethod === 'credit') {
+        console.log('💳 Pedido de crediário - estoque já foi reduzido no carrinho, prosseguindo...');
+      }
       
       // Usar storage real para criar o pedido
       const order = await storage.createOrder({
@@ -2666,11 +3467,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       console.log('💳 Confirmando pagamento do pedido:', id, { paymentMethod, notes });
       
-      // TODO: Implementar confirmação de pagamento
-      // Atualizar status do pedido para 'paid'
-      // Registrar transação financeira
+      // Buscar o pedido
+      const order = await storage.getOrder(id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
       
-      res.status(404).json({ message: "Order not found" });
+      // Verificar se o pedido já foi confirmado
+      if (order.status === 'confirmed' || order.status === 'completed') {
+        return res.status(400).json({ message: "Order already confirmed" });
+      }
+      
+      // Atualizar status do pedido para 'confirmed'
+      const updatedOrder = await storage.updateOrder(id, {
+        status: 'confirmed',
+        paymentMethod: paymentMethod || order.paymentMethod,
+        notes: notes || order.notes
+      });
+      
+      if (!updatedOrder) {
+        return res.status(500).json({ message: "Failed to update order" });
+      }
+      
+      console.log('✅ Pedido confirmado:', updatedOrder.id);
+      
+      // 🔔 DISPARAR WEBHOOK DE SINCRONIZAÇÃO FINANCEIRA
+      console.log('🔔 Disparando webhook de sincronização financeira...');
+      
+      const webhookResult = await financialWebhook.processOrderConfirmation(id);
+      
+      if (webhookResult.success) {
+        console.log('✅ Webhook executado com sucesso:', webhookResult.message);
+      } else {
+        console.error('❌ Erro no webhook:', webhookResult.message);
+      }
+      
+      // Retornar resposta com informações do webhook
+      res.json({
+        success: true,
+        order: updatedOrder,
+        webhook: {
+          success: webhookResult.success,
+          message: webhookResult.message,
+          transactionId: webhookResult.transactionId,
+          syncedData: webhookResult.syncedData
+        }
+      });
+      
     } catch (error) {
       console.error('❌ Erro ao confirmar pagamento:', error);
       res.status(500).json({ message: "Failed to confirm payment" });
@@ -2685,6 +3528,446 @@ export async function registerRoutes(app: Express): Promise<Server> {
   console.log('✅ DELETE /api/admin/orders/:id - Deletar pedido');
   console.log('✅ GET /api/admin/customers/:customerId/orders - Pedidos por cliente');
   console.log('✅ POST /api/admin/orders/:id/confirm-payment - Confirmar pagamento');
+  console.log('');
+
+  // ========================================
+  // 🔔 SISTEMA DE WEBHOOKS FINANCEIROS
+  // ========================================
+
+  // Cancelar pedido e sincronizar financeiro
+  app.post("/api/admin/orders/:id/cancel", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      
+      console.log('🚫 Cancelando pedido:', id, { reason });
+      
+      // Buscar o pedido
+      const order = await storage.getOrder(id);
+      if (!order) {
+        return res.status(404).json({ message: "Order not found" });
+      }
+      
+      // Atualizar status do pedido para 'cancelled'
+      const updatedOrder = await storage.updateOrder(id, {
+        status: 'cancelled',
+        notes: reason || 'Pedido cancelado'
+      });
+      
+      if (!updatedOrder) {
+        return res.status(500).json({ message: "Failed to cancel order" });
+      }
+      
+      console.log('✅ Pedido cancelado:', updatedOrder.id);
+      
+      // 🔔 DISPARAR WEBHOOK DE CANCELAMENTO
+      console.log('🔔 Disparando webhook de cancelamento financeiro...');
+      
+      const webhookResult = await financialWebhook.processOrderCancellation(id);
+      
+      if (webhookResult.success) {
+        console.log('✅ Webhook de cancelamento executado:', webhookResult.message);
+      } else {
+        console.error('❌ Erro no webhook de cancelamento:', webhookResult.message);
+      }
+      
+      res.json({
+        success: true,
+        order: updatedOrder,
+        webhook: {
+          success: webhookResult.success,
+          message: webhookResult.message,
+          transactionId: webhookResult.transactionId
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao cancelar pedido:', error);
+      res.status(500).json({ message: "Failed to cancel order" });
+    }
+  });
+
+  // Registrar pagamento de crediário
+  app.post("/api/admin/credit/:id/payment", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { amount, paymentMethod, notes } = req.body;
+      
+      console.log('💰 Registrando pagamento de crediário:', id, { amount, paymentMethod });
+      
+      if (!amount || amount <= 0) {
+        return res.status(400).json({ message: "Amount must be greater than 0" });
+      }
+      
+      // Buscar conta de crediário
+      const creditAccount = await storage.getCreditAccount(id);
+      if (!creditAccount) {
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      // Calcular novos valores
+      const currentPaid = parseFloat(creditAccount.paidAmount?.toString() || '0');
+      const newPaidAmount = currentPaid + parseFloat(amount);
+      const totalAmount = parseFloat(creditAccount.totalAmount?.toString() || '0');
+      const newRemainingAmount = Math.max(0, totalAmount - newPaidAmount);
+      
+      // Atualizar conta de crediário
+      const updatedAccount = await storage.updateCreditAccount(id, {
+        paidAmount: newPaidAmount.toString(),
+        remainingAmount: newRemainingAmount.toString(),
+        status: newRemainingAmount <= 0 ? 'paid' : 'active'
+      });
+      
+      if (!updatedAccount) {
+        return res.status(500).json({ message: "Failed to update credit account" });
+      }
+      
+      console.log('✅ Pagamento de crediário registrado:', updatedAccount.id);
+      
+      // 🎯 NOVO FLUXO: Se a conta foi quitada, finalizar automaticamente as reservas
+      if (newRemainingAmount <= 0) {
+        console.log('🎉 Conta quitada! Iniciando finalização automática das reservas...');
+        
+        try {
+          const finalizationResult = await finalizeCreditAccountReservations(id);
+          console.log('✅ Finalização automática concluída:', finalizationResult);
+        } catch (finalizationError) {
+          console.error('❌ Erro na finalização automática:', finalizationError);
+          // Não falha o pagamento, apenas loga o erro
+        }
+      }
+      
+      // 🔔 DISPARAR WEBHOOK DE PAGAMENTO DE CREDIÁRIO
+      console.log('🔔 Disparando webhook de pagamento de crediário...');
+      
+      const webhookResult = await financialWebhook.processCreditPayment(id, parseFloat(amount));
+      
+      if (webhookResult.success) {
+        console.log('✅ Webhook de pagamento executado:', webhookResult.message);
+      } else {
+        console.error('❌ Erro no webhook de pagamento:', webhookResult.message);
+      }
+      
+      res.json({
+        success: true,
+        creditAccount: updatedAccount,
+        webhook: {
+          success: webhookResult.success,
+          message: webhookResult.message,
+          transactionId: webhookResult.transactionId,
+          syncedData: webhookResult.syncedData
+        }
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao registrar pagamento de crediário:', error);
+      res.status(500).json({ message: "Failed to register credit payment" });
+    }
+  });
+
+  // ================================================================
+  // API PARA FINALIZAÇAO AUTOMATICA DE RESERVAS DO CREDITO
+  // ================================================================
+  
+  // Finalizar automaticamente as reservas quando a conta de crediario e quitada
+  app.post("/api/admin/credit-accounts/:id/finalize-reservations", async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log('🎯 Iniciando finalização automática de reservas para conta:', id);
+      
+      const result = await finalizeCreditAccountReservations(id);
+      
+      res.json({
+        success: true,
+        ...result
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao finalizar reservas da conta de crediário:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to finalize credit account reservations",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Sincronização manual de dados históricos
+  app.post("/api/admin/financial/sync-historical", async (req, res) => {
+    try {
+      console.log('🔄 Iniciando sincronização manual de dados históricos...');
+      
+      const result = await financialWebhook.syncHistoricalData();
+      
+      if (result.success) {
+        console.log('✅ Sincronização concluída:', result.message);
+      } else {
+        console.error('❌ Falha na sincronização:', result.message);
+      }
+      
+      res.json(result);
+      
+    } catch (error) {
+      console.error('❌ Erro na sincronização histórica:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to sync historical data",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Status do webhook e sincronização
+  app.get("/api/admin/financial/sync-status", async (req, res) => {
+    try {
+      const [transactions, orders, creditAccounts] = await Promise.all([
+        storage.getAllTransactions(),
+        storage.getAllOrders(),
+        storage.getAllCreditAccounts()
+      ]);
+      
+      // Analisar status de sincronização
+      const confirmedOrders = orders.filter(o => o.status === 'confirmed' || o.status === 'completed');
+      const syncedOrders = transactions.filter(t => 
+        t.metadata && 
+        typeof t.metadata === 'object' && 
+        (t.metadata as any).source === 'order_webhook'
+      );
+      
+      const activeCreditAccounts = creditAccounts.filter(ca => ca.status === 'active');
+      const syncedCreditPayments = transactions.filter(t => 
+        t.metadata && 
+        typeof t.metadata === 'object' && 
+        (t.metadata as any).source === 'credit_webhook'
+      );
+      
+      const status = {
+        orders: {
+          total: orders.length,
+          confirmed: confirmedOrders.length,
+          synced: syncedOrders.length,
+          pendingSync: Math.max(0, confirmedOrders.length - syncedOrders.length)
+        },
+        credit: {
+          totalAccounts: creditAccounts.length,
+          activeAccounts: activeCreditAccounts.length,
+          syncedPayments: syncedCreditPayments.length
+        },
+        transactions: {
+          total: transactions.length,
+          webhookGenerated: transactions.filter(t => 
+            t.metadata && 
+            typeof t.metadata === 'object' && 
+            ['order_webhook', 'credit_webhook'].includes((t.metadata as any).source)
+          ).length
+        },
+        syncHealth: {
+          ordersInSync: confirmedOrders.length === syncedOrders.length,
+          lastSyncCheck: new Date().toISOString()
+        }
+      };
+      
+      res.json(status);
+      
+    } catch (error) {
+      console.error('❌ Erro ao verificar status de sincronização:', error);
+      res.status(500).json({ message: "Failed to get sync status" });
+    }
+  });
+
+  console.log('🔔 Rotas de webhook financeiro registradas:');
+  console.log('✅ POST /api/admin/orders/:id/cancel - Cancelar pedido com webhook');
+  console.log('✅ POST /api/admin/credit/:id/payment - Registrar pagamento crediário');
+  console.log('✅ POST /api/admin/financial/sync-historical - Sincronização histórica');
+  console.log('✅ GET /api/admin/financial/sync-status - Status de sincronização');
+  console.log('');
+
+  // ========================================
+  // 🚀 SISTEMA DE JOB DE SINCRONIZAÇÃO
+  // ========================================
+
+  // Iniciar job de sincronização automática
+  app.post("/api/admin/financial/sync-job/start", async (req, res) => {
+    try {
+      const { intervalMinutes = 30 } = req.body;
+      
+      console.log('🚀 Iniciando job de sincronização automática:', { intervalMinutes });
+      
+      const status = financialSyncJob.getStatus();
+      if (status.isRunning) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Job já está em execução" 
+        });
+      }
+      
+      financialSyncJob.start(intervalMinutes);
+      
+      console.log('✅ Job de sincronização iniciado com sucesso');
+      
+      res.json({
+        success: true,
+        message: `Job de sincronização iniciado (intervalo: ${intervalMinutes} minutos)`,
+        status: financialSyncJob.getStatus()
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao iniciar job de sincronização:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to start sync job" 
+      });
+    }
+  });
+
+  // Parar job de sincronização
+  app.post("/api/admin/financial/sync-job/stop", async (req, res) => {
+    try {
+      console.log('⏹️ Parando job de sincronização...');
+      
+      financialSyncJob.stop();
+      
+      console.log('✅ Job de sincronização parado com sucesso');
+      
+      res.json({
+        success: true,
+        message: "Job de sincronização parado",
+        status: financialSyncJob.getStatus()
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao parar job de sincronização:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to stop sync job" 
+      });
+    }
+  });
+
+  // Executar job de sincronização manualmente
+  app.post("/api/admin/financial/sync-job/run", async (req, res) => {
+    try {
+      console.log('🚀 Executando job de sincronização manual...');
+      
+      const result = await financialSyncJob.runSyncJob();
+      
+      if (result.success) {
+        console.log('✅ Job de sincronização manual concluído:', result.message);
+      } else {
+        console.error('❌ Job de sincronização manual falhou:', result.message);
+      }
+      
+      res.json(result);
+      
+    } catch (error) {
+      console.error('❌ Erro ao executar job manual:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to run sync job" 
+      });
+    }
+  });
+
+  // Status detalhado do job
+  app.get("/api/admin/financial/sync-job/status", async (req, res) => {
+    try {
+      const status = financialSyncJob.getStatus();
+      const detailedStats = await financialSyncJob.getDetailedStats();
+      
+      res.json({
+        success: true,
+        status,
+        stats: detailedStats
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao obter status do job:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to get job status" 
+      });
+    }
+  });
+
+  // Detectar inconsistências
+  app.get("/api/admin/financial/inconsistencies", async (req, res) => {
+    try {
+      console.log('🔍 Detectando inconsistências nos dados...');
+      
+      // Usar método interno do job para detectar inconsistências
+      const inconsistencies = await financialSyncJob.detectInconsistencies();
+      
+      console.log(`✅ Inconsistências detectadas: ${inconsistencies.length}`);
+      
+      // Categorizar por severidade
+      const categorized = {
+        high: inconsistencies.filter(i => i.severity === 'high'),
+        medium: inconsistencies.filter(i => i.severity === 'medium'),
+        low: inconsistencies.filter(i => i.severity === 'low')
+      };
+      
+      res.json({
+        success: true,
+        total: inconsistencies.length,
+        categorized,
+        inconsistencies: inconsistencies.map(i => ({
+          ...i,
+          detectedAt: new Date().toISOString()
+        }))
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao detectar inconsistências:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to detect inconsistencies" 
+      });
+    }
+  });
+
+  // Corrigir inconsistências específicas
+  app.post("/api/admin/financial/fix-inconsistencies", async (req, res) => {
+    try {
+      const { inconsistencyIds } = req.body;
+      
+      console.log('🔧 Corrigindo inconsistências:', inconsistencyIds);
+      
+      // Detectar todas as inconsistências
+      const allInconsistencies = await financialSyncJob.detectInconsistencies();
+      
+      // Filtrar apenas as solicitadas (por simplicidade, corrigir todas as críticas)
+      const criticalInconsistencies = allInconsistencies.filter(i => i.severity === 'high');
+      
+      const fixedCount = await financialSyncJob.fixCriticalInconsistencies(criticalInconsistencies);
+      
+      console.log(`✅ Inconsistências corrigidas: ${fixedCount}`);
+      
+      res.json({
+        success: true,
+        fixedCount,
+        message: `${fixedCount} inconsistências críticas foram corrigidas`
+      });
+      
+    } catch (error) {
+      console.error('❌ Erro ao corrigir inconsistências:', error);
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to fix inconsistencies" 
+      });
+    }
+  });
+
+  console.log('🚀 Rotas de job de sincronização registradas:');
+  console.log('✅ POST /api/admin/financial/sync-job/start - Iniciar job automático');
+  console.log('✅ POST /api/admin/financial/sync-job/stop - Parar job automático');
+  console.log('✅ POST /api/admin/financial/sync-job/run - Executar job manual');
+  console.log('✅ GET /api/admin/financial/sync-job/status - Status detalhado');
+  console.log('✅ GET /api/admin/financial/inconsistencies - Detectar inconsistências');
+  console.log('✅ POST /api/admin/financial/fix-inconsistencies - Corrigir inconsistências');
+  console.log('');
+
+  // Job de sincronização será iniciado manualmente via API
+  console.log('🚨 Job de sincronização disponível para inicialização manual');
   console.log('');
 
   // ========================================
@@ -2746,21 +4029,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/products/:productId/reviews", async (req, res) => {
     try {
       const { productId } = req.params;
-      const { customerId, orderId, rating, title, comment, isVerifiedPurchase } = req.body;
+      const { customerName, customerPhone, rating, comment, recommendation, isVerifiedPurchase } = req.body;
       
       console.log('🌟 Criando nova avaliação para produto:', productId);
       
       // Validar dados obrigatórios
-      if (!customerId || !rating || rating < 1 || rating > 5) {
-        return res.status(400).json({ message: "customerId e rating (1-5) são obrigatórios" });
+      if (!customerName || !rating || rating < 1 || rating > 5) {
+        return res.status(400).json({ message: "customerName e rating (1-5) são obrigatórios" });
       }
       
       const reviewData = {
         productId,
-        customerId,
-        orderId: orderId || null,
-        rating: parseInt(rating),
-        title: title || null,
+        customerName,
+        customerEmail: customerPhone || null, // Usando campo de email para telefone temporário
+        rating,
+        title: recommendation === 'sim' ? '👍 Recomendo este produto' : '👎 Não recomendo',
         comment: comment || null,
         isVerifiedPurchase: isVerifiedPurchase || false,
         isApproved: true // Por padrão aprovar automaticamente
@@ -2769,7 +4052,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const review = await storage.createProductReview(reviewData);
       
       console.log('✅ Avaliação criada com sucesso:', review.id);
-      res.status(201).json(review);
+      res.status(201).json({ success: true, data: review });
     } catch (error) {
       console.error('❌ Erro ao criar avaliação:', error);
       res.status(500).json({ message: "Failed to create review" });
