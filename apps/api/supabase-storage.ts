@@ -73,13 +73,25 @@ console.log('   Starts with postgresql:', rawDatabaseUrl.startsWith('postgresql:
 console.log('   Contains DATABASE_URL=:', rawDatabaseUrl.includes('DATABASE_URL='));
 
 // Limpar URL se contiver prefixo incorreto
-let databaseUrl = rawDatabaseUrl;
-if (rawDatabaseUrl.includes('DATABASE_URL=')) {
+let databaseUrl = rawDatabaseUrl.trim();
+
+// Verificar e remover prefixo DATABASE_URL= se existir
+if (databaseUrl.startsWith('DATABASE_URL=')) {
   console.log('⚠️ PROBLEMA DETECTADO: URL contém prefixo DATABASE_URL=');
   console.log('🔧 Removendo prefixo...');
-  databaseUrl = rawDatabaseUrl.replace('DATABASE_URL=', '');
+  databaseUrl = databaseUrl.substring('DATABASE_URL='.length).trim();
   console.log('✅ URL limpa:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 }
+
+// Verificação adicional de segurança
+if (!databaseUrl.startsWith('postgresql://')) {
+  console.error('❌ ERRO CRÍTICO: URL do banco não é válida');
+  console.error('   Raw URL:', JSON.stringify(rawDatabaseUrl));
+  console.error('   Processed URL:', JSON.stringify(databaseUrl));
+  throw new Error('DATABASE_URL inválida: deve começar com postgresql://');
+}
+
+console.log('✅ URL final validada:', databaseUrl.replace(/:([^:@]+)@/, ':***@'));
 console.log('='.repeat(40));
 
 console.log('📊 Configuração do banco:');
