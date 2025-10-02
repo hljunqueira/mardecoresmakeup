@@ -21,7 +21,7 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden" aria-describedby="review-modal-description">
+      <DialogContent className="max-w-4xl h-[85vh] flex flex-col" aria-describedby="review-modal-description">
         <DialogHeader className="border-b pb-4">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-xl font-semibold flex items-center gap-2">
@@ -39,7 +39,7 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden" id="review-modal-description">
+        <div className="flex-1 overflow-y-auto" id="review-modal-description">
           {/* Product Info */}
           <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg mb-6">
             <img
@@ -71,7 +71,7 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
           </div>
 
           {/* Content */}
-          <div className="overflow-y-auto max-h-[60vh] space-y-6">
+          <div className="space-y-6">
             {/* Formulário de Avaliação */}
             <div className="space-y-4">
               <h3 className="text-lg font-semibold">Deixe sua avaliação</h3>
@@ -85,9 +85,8 @@ export default function ReviewModal({ isOpen, onClose, product }: ReviewModalPro
             {/* Divider */}
             <div className="border-t border-gray-200" />
 
-            {/* Lista de Avaliações */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Avaliações dos Clientes</h3>
+            {/* Lista de Avaliações - sem título duplicado */}
+            <div>
               <ReviewList key={refreshKey} productId={product.id} />
             </div>
           </div>
