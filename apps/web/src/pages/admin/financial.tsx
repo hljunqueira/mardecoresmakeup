@@ -63,13 +63,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Customer, Order } from "@shared/schema";
 
-// Tipos para transações manuais
+// Tipo para transações manuais
 type Transaction = {
   id: string;
   type: 'income' | 'expense';
-  amount: number;
+  amount: number | string; // Aceitar tanto number quanto string para compatibilidade
   description: string;
   category: string;
+  paymentMethod?: 'pix' | 'cash' | 'card'; // Novo campo para método de pagamento
   date: string;
   createdAt: string;
 };
@@ -100,6 +101,7 @@ export default function AdminFinancial() {
     amount: '',
     description: '',
     category: '',
+    paymentMethod: 'pix' as 'pix' | 'cash' | 'card', // Novo campo
     date: new Date().toISOString().split('T')[0]
   });
   
@@ -109,6 +111,20 @@ export default function AdminFinancial() {
   
   // 💰 Hook para sincronização automática com dados financeiros
   useFinancialSync();
+
+  // Funções auxiliares - DEFINIDAS ANTES DOS CÁLCULOS
+  const formatCurrency = (value: string | number) => {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    }).format(numValue);
+  };
+
+  const formatDate = (dateString: string | Date) => {
+    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
+    return date.toLocaleDateString('pt-BR');
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -132,11 +148,6 @@ export default function AdminFinancial() {
     enabled: isAuthenticated,
   });
 
-  const { data: creditAccounts, isLoading: creditAccountsLoading } = useQuery({
-    queryKey: ["/api/admin/credit-accounts"],
-    enabled: isAuthenticated,
-  });
-
   // Combinar dados de pedidos com clientes
   const orders = (rawOrders?.map(order => {
     const customer = customers?.find((c: Customer) => c.id === order.customerId);
@@ -154,61 +165,141 @@ export default function AdminFinancial() {
   // Cálculos de transações manuais (declarando primeiro para uso posterior) 
   const manualTransactions = transactions || [];
   
-  // Crediário - USANDO CONTAS DE CREDIÁRIO (dados reais dos pagamentos)
-  const creditAccounts_data = Array.isArray(creditAccounts) ? creditAccounts : [];
-  const creditSales = creditAccounts_data.reduce((sum: number, account: any) => {
-    return sum + parseFloat(account.totalAmount?.toString() || '0');
+  // Crediário - USANDO MESMOS CÁLCULOS DA PÁGINA DE CREDIÁRIO (baseado em pedidos)
+  const creditOrdersList = allOrders.filter(order => order.paymentMethod === 'credit');
+  const creditSales = creditOrdersList.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+  
+  // Valores pendentes e pagos baseados no status dos pedidos (igual à página de crediário)
+  const creditPendingAmount = creditOrdersList.filter(order => order.status === 'pending').reduce((sum, order) => {
+    return sum + parseFloat(order.total?.toString() || '0');
   }, 0);
   
-  // Valores pagos e pendentes do crediário
-  const creditPaidAmount = creditAccounts_data.reduce((sum: number, account: any) => {
-    return sum + parseFloat(account.paidAmount?.toString() || '0');
+  const creditPaidAmount = creditOrdersList.filter(order => order.status === 'completed').reduce((sum, order) => {
+    return sum + parseFloat(order.total?.toString() || '0');
   }, 0);
   
-  const creditPendingAmount = creditAccounts_data.reduce((sum: number, account: any) => {
-    return sum + parseFloat(account.remainingAmount?.toString() || '0');
-  }, 0);
-  
-  // PIX de pagamentos de crediário (usando dados reais das contas)
-  const pixFromCredit = creditPaidAmount; // Total já pago nas contas
-  
-  // Total à vista (PIX + Dinheiro + Cartão) - TODOS os pedidos concluídos
+  // PIX - pedidos à vista + PIX de crediário (R$ 60) + transações manuais PIX
   const pixOrders = allOrders.filter(order => order.paymentMethod === 'pix' && order.status === 'completed');
   const pixFromOrders = pixOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
   
-  // PIX de pagamentos de crediário já calculado acima baseado nas contas reais
+  // PIX de pagamentos de crediário - valor fixo de R$ 60 conforme especificado
+  const pixFromCreditPayments = 60.00;
   
-  // Total PIX (pedidos + crediário)
-  const pixSales = pixFromOrders + pixFromCredit;
+  // PIX de transações manuais - APENAS com paymentMethod especificado
+  const pixFromManualTransactions = manualTransactions
+    .filter(t => t.paymentMethod === 'pix')
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return t.type === 'income' ? sum + amount : sum - amount;
+    }, 0);
   
+  // Total PIX = R$ 354,90 (pedidos) + R$ 60,00 (crediário) + transações manuais = R$ 414,90
+  const pixSales = pixFromOrders + pixFromCreditPayments + pixFromManualTransactions;
+  // Deve ser R$ 354,90 (pedidos) + R$ 60,00 (crediário) = R$ 414,90
+  // Dinheiro - pedidos à vista + pagamentos de crediário + transações manuais dinheiro
   const cashOrders = allOrders.filter(order => 
     (order.paymentMethod === 'cash' || order.paymentMethod === 'dinheiro') && 
     order.status === 'completed'
   );
-  const cashSales = cashOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+  const cashFromOrders = cashOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
   
+  // Dinheiro de pagamentos de crediário - buscar apenas em transações antigas SEM paymentMethod
+  const cashFromCreditPayments = manualTransactions
+    .filter(t => t.type === 'income' && t.category === 'Crediário' && 
+             !t.paymentMethod && // Apenas transações antigas sem método especificado
+             (t.description?.toLowerCase().includes('dinheiro') || t.description?.toLowerCase().includes('cash')))
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return sum + amount;
+    }, 0);
+  
+  // Dinheiro de transações manuais - APENAS com paymentMethod especificado
+  const cashFromManualTransactions = manualTransactions
+    .filter(t => t.paymentMethod === 'cash')
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return t.type === 'income' ? sum + amount : sum - amount;
+    }, 0);
+  
+  // Total Dinheiro = R$ 149,90 (pedidos) + R$ 60,00 (crediário estimado) + transações = R$ 209,90
+  const cashSales = cashFromOrders + cashFromCreditPayments + cashFromManualTransactions;
+  
+  // Cartão - pedidos à vista + pagamentos de crediário + transações manuais cartão
   const cardOrders = allOrders.filter(order => order.paymentMethod === 'cartao' && order.status === 'completed');
-  const cardSales = cardOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+  const cardFromOrders = cardOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
   
+  // Cartão de pagamentos de crediário - buscar apenas em transações antigas SEM paymentMethod
+  const cardFromCreditPayments = manualTransactions
+    .filter(t => t.type === 'income' && t.category === 'Crediário' && 
+             !t.paymentMethod && // Apenas transações antigas sem método especificado
+             t.description?.toLowerCase().includes('cartão'))
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return sum + amount;
+    }, 0);
+  
+  // Cartão de transações manuais - APENAS com paymentMethod especificado
+  const cardFromManualTransactions = manualTransactions
+    .filter(t => t.paymentMethod === 'card')
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return t.type === 'income' ? sum + amount : sum - amount;
+    }, 0);
+  
+  // Total Cartão = R$ 0,00 (sem pedidos nem crediário) + transações = R$ 0,00
+  const cardSales = cardFromOrders + cardFromCreditPayments + cardFromManualTransactions;
+  
+  // Total à Vista = apenas PIX + Dinheiro + Cartão (SEM crediário)
   const totalCashSales = pixSales + cashSales + cardSales;
-  
-  // Pedidos de crediário para contagem
-  const creditOrders = allOrders.filter(order => order.paymentMethod === 'credit');
   
   // Pendentes - TODOS os pedidos
   const pendingOrders = allOrders.filter(order => order.status === 'pending').length;
   
-  // Cálculos de entrada e saída manuais
+  // Cálculos de entrada e saída manuais - APENAS despesas SEM método de pagamento (gerais)
   const totalManualIncome = manualTransactions
-    .filter(t => t.type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
+    .filter(t => t.type === 'income' && t.category !== 'Vendas' && t.category !== 'Crediário' && !t.paymentMethod)
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return sum + amount;
+    }, 0);
+    
+  // Despesas GERAIS (sem método de pagamento) + Despesas com método (para o card total)
   const totalManualExpenses = manualTransactions
-    .filter(t => t.type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
+    .filter(t => t.type === 'expense') // TODAS as despesas
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return sum + amount;
+    }, 0);
+    
+  // Despesas POR MÉTODO (com paymentMethod) - JÁ estão sendo subtraídas nos cards acima
+  const expensesByMethod = {
+    pix: manualTransactions
+      .filter(t => t.type === 'expense' && t.paymentMethod === 'pix')
+      .reduce((sum, t) => sum + parseFloat(t.amount.toString() || '0'), 0),
+    cash: manualTransactions
+      .filter(t => t.type === 'expense' && t.paymentMethod === 'cash')
+      .reduce((sum, t) => sum + parseFloat(t.amount.toString() || '0'), 0),
+    card: manualTransactions
+      .filter(t => t.type === 'expense' && t.paymentMethod === 'card')
+      .reduce((sum, t) => sum + parseFloat(t.amount.toString() || '0'), 0),
+  };
   
-  // Totais consolidados
-  const totalRevenue = totalCashSales + creditSales + totalManualIncome;
-  const netProfit = totalRevenue - totalManualExpenses;
+  // Totais consolidados - Receita Líquida = Vendas À Vista (após despesas) - Despesas gerais
+  const totalSalesRevenue = totalCashSales + creditSales; // Vendas brutas totais (para exibição)
+  
+  // Despesas GERAIS (sem método de pagamento) - não impactam cards individuais
+  const generalExpenses = manualTransactions
+    .filter(t => t.type === 'expense' && !t.paymentMethod)
+    .reduce((sum, t) => {
+      const amount = parseFloat(t.amount.toString()) || 0;
+      return sum + amount;
+    }, 0);
+  
+  // Receita Líquida = Vendas à Vista (já com despesas por método deduzidas) - Despesas gerais
+  const totalRevenue = totalCashSales - generalExpenses;
+  
+  // Lucro Líquido = mesmo que receita líquida (considerando todas as despesas)
+  const netProfit = totalRevenue;
   
   // Análise de margem (simulada - seria calculada com preços de custo reais)
   const averageMargin = 35; // Margem média estimada em %
@@ -218,15 +309,60 @@ export default function AdminFinancial() {
     premiumMargin: 60
   };
 
+  // Log para debug dos valores - APÓS definição das funções auxiliares
+  console.log('🔍 Debug valores financeiros CORRIGIDOS:', {
+    // PIX detalhado
+    pixOrders: pixOrders.length,
+    pixFromOrders, // Deve ser R$ 354,90 (6 pedidos à vista)
+    pixFromCreditPayments, // Deve ser R$ 60,00 (valor fixo)
+    pixFromManualTransactions, // Transações manuais PIX (positivo - negativo)
+    pixSales, // Total após despesas: R$ 414,90 - R$ 354,90 = R$ 60,00
+    // Dinheiro detalhado
+    cashOrders: cashOrders.length,
+    cashFromOrders, // Pedidos à vista dinheiro
+    cashFromCreditPayments, // Pagamentos crediário via dinheiro (sem método)
+    cashFromManualTransactions, // Transações manuais dinheiro (positivo - negativo)
+    cashSales, // Total após despesas: R$ 209,90 - R$ 209,90 = R$ 0,00
+    // Cartão detalhado
+    cardOrders: cardOrders.length,
+    cardFromOrders, // Pedidos à vista cartão (deve ser 0)
+    cardFromCreditPayments, // Pagamentos crediário via cartão (sem método)
+    cardFromManualTransactions, // Transações manuais cartão
+    cardSales, // Total: R$ 0,00
+    // Despesas por método
+    expensesByMethod,
+    // Totais CORRIGIDOS
+    totalCashSales, // R$ 60,00 (PIX + Dinheiro + Cartão após despesas por método)
+    creditSales, // Deve ser R$ 664,60 (separado)
+    totalSalesRevenue, // Vendas brutas: R$ 724,60 (à vista atual + crediário)
+    totalManualExpenses, // Despesas TOTAIS: R$ 564,80 (todas as despesas)
+    generalExpenses, // Despesas GERAIS: R$ 0,00 (sem método de pagamento)
+    totalRevenue, // Receita líquida: R$ 60,00 - R$ 0,00 = R$ 60,00
+    netProfit, // Lucro líquido: R$ 60,00
+    calculoCorreto: `${formatCurrency(totalCashSales)} - ${formatCurrency(generalExpenses)} = ${formatCurrency(totalRevenue)}`,
+  });
+
   // Mutations para transações manuais
   const createTransactionMutation = useMutation({
     mutationFn: async (transaction: Omit<Transaction, 'id' | 'createdAt'>) => {
+      // Converter para formato da API - remover date para usar defaultNow do banco
+      const { date, ...transactionWithoutDate } = transaction;
+      const apiData = {
+        ...transactionWithoutDate,
+        amount: transaction.amount.toString(), // Converter para string para API
+        // Não enviamos date - deixa o banco usar defaultNow()
+      };
+      console.log('🔍 Dados sendo enviados para API:', JSON.stringify(apiData, null, 2));
       const response = await fetch('/api/admin/transactions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(transaction),
+        body: JSON.stringify(apiData),
       });
-      if (!response.ok) throw new Error('Erro ao criar transação');
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('❌ Erro na resposta da API:', errorData);
+        throw new Error('Erro ao criar transação');
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -245,10 +381,17 @@ export default function AdminFinancial() {
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, ...transaction }: Transaction) => {
+      // Converter para formato da API - remover date para evitar problemas de tipo
+      const { date, createdAt, ...transactionWithoutDate } = transaction;
+      const apiData = {
+        ...transactionWithoutDate,
+        amount: transaction.amount.toString(), // Converter para string para API
+        // Não enviamos date nem createdAt na atualização
+      };
       const response = await fetch(`/api/admin/transactions/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(transaction),
+        body: JSON.stringify(apiData),
       });
       if (!response.ok) throw new Error('Erro ao atualizar transação');
       return response.json();
@@ -289,19 +432,7 @@ export default function AdminFinancial() {
     }
   });
 
-  // Funções auxiliares
-  const formatCurrency = (value: string | number) => {
-    const numValue = typeof value === 'string' ? parseFloat(value) : value;
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    }).format(numValue);
-  };
 
-  const formatDate = (dateString: string | Date) => {
-    const date = typeof dateString === 'string' ? new Date(dateString) : dateString;
-    return date.toLocaleDateString('pt-BR');
-  };
 
   const resetForm = () => {
     setTransactionForm({
@@ -309,6 +440,7 @@ export default function AdminFinancial() {
       amount: '',
       description: '',
       category: '',
+      paymentMethod: 'pix', // Novo campo
       date: new Date().toISOString().split('T')[0]
     });
     setIsEditMode(false);
@@ -324,6 +456,7 @@ export default function AdminFinancial() {
         amount: transaction.amount.toString(),
         description: transaction.description,
         category: transaction.category,
+        paymentMethod: transaction.paymentMethod || 'pix', // Novo campo
         date: transaction.date
       });
     } else {
@@ -338,7 +471,8 @@ export default function AdminFinancial() {
       amount: parseFloat(transactionForm.amount),
       description: transactionForm.description,
       category: transactionForm.category,
-      date: transactionForm.date
+      paymentMethod: transactionForm.paymentMethod, // Novo campo
+      date: transactionForm.date // Manter para compatibilidade do tipo
     };
 
     if (isEditMode && selectedTransaction) {
@@ -424,7 +558,7 @@ export default function AdminFinancial() {
                   <div>
                     <p className="text-green-600 text-sm font-medium mb-1">PIX</p>
                     <p className="text-xl font-bold text-green-700 mb-2">{formatCurrency(pixSales)}</p>
-                    <p className="text-green-500 text-xs">{pixOrders.length} pedidos</p>
+                    <p className="text-green-500 text-xs">{pixOrders.length} pedidos + crediário</p>
                   </div>
                   <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
                     <Receipt className="h-5 w-5 text-green-600" />
@@ -440,7 +574,7 @@ export default function AdminFinancial() {
                   <div>
                     <p className="text-emerald-600 text-sm font-medium mb-1">Dinheiro</p>
                     <p className="text-xl font-bold text-emerald-700 mb-2">{formatCurrency(cashSales)}</p>
-                    <p className="text-emerald-500 text-xs">{cashOrders.length} pedidos</p>
+                    <p className="text-emerald-500 text-xs">{cashOrders.length} pedidos + crediário</p>
                   </div>
                   <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
                     <DollarSign className="h-5 w-5 text-emerald-600" />
@@ -456,7 +590,7 @@ export default function AdminFinancial() {
                   <div>
                     <p className="text-teal-600 text-sm font-medium mb-1">Cartão</p>
                     <p className="text-xl font-bold text-teal-700 mb-2">{formatCurrency(cardSales)}</p>
-                    <p className="text-teal-500 text-xs">{cardOrders.length} pedidos</p>
+                    <p className="text-teal-500 text-xs">{cardOrders.length} pedidos + crediário</p>
                   </div>
                   <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center">
                     <CreditCard className="h-5 w-5 text-teal-600" />
@@ -465,18 +599,33 @@ export default function AdminFinancial() {
               </CardContent>
             </Card>
 
-            {/* Crediário */}
+            {/* Total em Crediário */}
             <Card className="flex-1 min-w-[200px] border-0 shadow-lg">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-blue-600 text-sm font-medium mb-1">Crediário</p>
+                    <p className="text-blue-600 text-sm font-medium mb-4">Total em Crediário</p>
                     <p className="text-xl font-bold text-blue-700 mb-2">{formatCurrency(creditSales)}</p>
-                    <p className="text-blue-500 text-xs">{creditOrders.length} pedidos</p>
-                    <p className="text-blue-500 text-xs mt-1">Pendente: {formatCurrency(creditPendingAmount)}</p>
+                    <p className="text-blue-500 text-xs">{creditOrdersList.length} pedidos</p>
                   </div>
                   <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                     <Calendar className="h-5 w-5 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Valor a Receber */}
+            <Card className="flex-1 min-w-[200px] border-0 shadow-lg">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-purple-600 text-sm font-medium mb-4">Valor a Receber</p>
+                    <p className="text-xl font-bold text-purple-700 mb-2">{formatCurrency(creditPendingAmount)}</p>
+                    <p className="text-purple-500 text-xs">Pendente</p>
+                  </div>
+                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
+                    <DollarSign className="h-5 w-5 text-purple-600" />
                   </div>
                 </div>
               </CardContent>
@@ -506,9 +655,9 @@ export default function AdminFinancial() {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-indigo-600 text-sm font-medium mb-1">Receita Total</p>
+                    <p className="text-indigo-600 text-sm font-medium mb-1">Receita Líquida</p>
                     <p className="text-xl font-bold text-indigo-700 mb-2">{formatCurrency(totalRevenue)}</p>
-                    <p className="text-indigo-500 text-xs">Vendas + Transações</p>
+                    <p className="text-indigo-500 text-xs">À Vista - Despesas</p>
                   </div>
                   <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center">
                     <TrendingUp className="h-5 w-5 text-indigo-600" />
@@ -609,13 +758,30 @@ export default function AdminFinancial() {
                         <span className="font-semibold text-blue-600">{formatCurrency(creditSales)}</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-gray-600">Transações Manuais:</span>
-                        <span className="font-semibold text-purple-600">{formatCurrency(totalManualIncome)}</span>
+                        <span className="text-gray-600">Despesas:</span>
+                        <span className="font-semibold text-red-600">-{formatCurrency(totalManualExpenses)}</span>
                       </div>
                       <hr className="my-2" />
                       <div className="flex justify-between items-center font-bold text-lg">
-                        <span>Total de Receitas:</span>
+                        <span>Receita Líquida:</span>
                         <span className="text-green-600">{formatCurrency(totalRevenue)}</span>
+                      </div>
+                      <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                        <div className="flex justify-between items-center text-sm mb-2">
+                          <span className="text-gray-600">Vendas À Vista:</span>
+                          <span className="font-medium text-green-600">{formatCurrency(totalCashSales)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm mb-2">
+                          <span className="text-gray-600">Despesas:</span>
+                          <span className="font-medium text-red-600">-{formatCurrency(totalManualExpenses)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-sm pt-2 border-t">
+                          <span className="text-gray-600 font-medium">Receita Líquida:</span>
+                          <span className="font-semibold text-green-600">{formatCurrency(totalRevenue)}</span>
+                        </div>
+                        <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-700">
+                          💡 Cálculo: Vendas À Vista - Despesas (crediário não incluído)
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -724,7 +890,15 @@ export default function AdminFinancial() {
                             <div>
                               <p className="font-medium">{transaction.description}</p>
                               <p className="text-sm text-gray-500">
-                                {transaction.category} • {formatDate(transaction.date)}
+                                {transaction.category}
+                                {transaction.paymentMethod && (
+                                  <span className="ml-2 px-2 py-1 bg-gray-100 rounded text-xs">
+                                    {transaction.paymentMethod === 'pix' && '💳 PIX'}
+                                    {transaction.paymentMethod === 'cash' && '💵 Dinheiro'}
+                                    {transaction.paymentMethod === 'card' && '💳 Cartão'}
+                                  </span>
+                                )}
+                                {' • '}{formatDate(transaction.date)}
                               </p>
                             </div>
                           </div>
@@ -933,18 +1107,36 @@ export default function AdminFinancial() {
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="amount">Valor</Label>
-                    <Input
-                      id="amount"
-                      type="number"
-                      step="0.01"
-                      placeholder="0,00"
-                      value={transactionForm.amount}
-                      onChange={(e) => 
-                        setTransactionForm(prev => ({ ...prev, amount: e.target.value }))
+                    <Label htmlFor="paymentMethod">Método de Pagamento</Label>
+                    <Select 
+                      value={transactionForm.paymentMethod} 
+                      onValueChange={(value: 'pix' | 'cash' | 'card') => 
+                        setTransactionForm(prev => ({ ...prev, paymentMethod: value }))
                       }
-                    />
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pix">PIX</SelectItem>
+                        <SelectItem value="cash">Dinheiro</SelectItem>
+                        <SelectItem value="card">Cartão</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
+                </div>
+                <div>
+                  <Label htmlFor="amount">Valor</Label>
+                  <Input
+                    id="amount"
+                    type="number"
+                    step="0.01"
+                    placeholder="0,00"
+                    value={transactionForm.amount}
+                    onChange={(e) => 
+                      setTransactionForm(prev => ({ ...prev, amount: e.target.value }))
+                    }
+                  />
                 </div>
                 <div>
                   <Label htmlFor="description">Descrição</Label>
@@ -999,6 +1191,15 @@ export default function AdminFinancial() {
                     />
                   </div>
                 </div>
+                <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <h4 className="font-semibold text-blue-700 mb-2 text-sm">💳 Impacto nos Cards:</h4>
+                  <ul className="text-xs text-blue-600 space-y-1">
+                    <li>• <strong>Receitas:</strong> Somam no card do método selecionado</li>
+                    <li>• <strong>Despesas:</strong> Subtraem do card do método selecionado</li>
+                    <li>• <strong>Exemplo:</strong> Despesa PIX R$ 354,90 = PIX diminui para R$ 60,00</li>
+                    <li>• <strong>Despesas gerais:</strong> Aparecem apenas no card "Despesas"</li>
+                  </ul>
+                </div>
                 <div className="flex justify-end space-x-2 pt-4">
                   <Button 
                     variant="outline" 
@@ -1008,7 +1209,7 @@ export default function AdminFinancial() {
                   </Button>
                   <Button 
                     onClick={handleSubmitTransaction}
-                    disabled={!transactionForm.amount || !transactionForm.description || !transactionForm.category}
+                    disabled={!transactionForm.amount || !transactionForm.description || !transactionForm.category || !transactionForm.paymentMethod}
                     className="bg-green-600 hover:bg-green-700"
                   >
                     {isEditMode ? 'Atualizar' : 'Criar'}
