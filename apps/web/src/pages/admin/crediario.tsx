@@ -99,6 +99,17 @@ export default function AdminCrediario() {
   const [orderToTransfer, setOrderToTransfer] = useState<Order | null>(null);
   const [customerForTransfer, setCustomerForTransfer] = useState<Customer | null>(null);
   
+  // Estado para reversão de pedidos
+  const [isProcessingRevert, setIsProcessingRevert] = useState(false);
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [lastRevertedOrder, setLastRevertedOrder] = useState<string | null>(null);
+  const [revertConfirmation, setRevertConfirmation] = useState<{
+    show: boolean;
+    order: Order | null;
+    customerName: string;
+  }>({ show: false, order: null, customerName: '' });
+
   const { isAuthenticated } = useAdminAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -223,6 +234,29 @@ export default function AdminCrediario() {
     return sum + parseFloat(order.total?.toString() || "0");
   }, 0) || 0;
 
+  // Função para verificar se um pedido já foi quitado
+  const isOrderPaidOff = (order: Order): boolean => {
+    if (order.paymentMethod !== 'credit') return false;
+    
+    // 🔄 Se o pedido está pendente, nunca está quitado
+    if (order.status === 'pending') return false;
+    
+    // Se o pedido já está marcado como completed, considerar quitado
+    if (order.status === 'completed') return true;
+    
+    // Verificar a conta de crediário como fallback
+    const creditAccount = creditAccounts?.find(account => 
+      account.customerId === order.customerId && 
+      (account.status === 'active' || account.status === 'paid_off')
+    );
+    
+    if (!creditAccount) return false;
+    
+    // Verificar se o valor pendente é zero
+    const remainingAmount = parseFloat(creditAccount.remainingAmount?.toString() || "0");
+    return remainingAmount <= 0;
+  };
+
   // Funções para abrir os modais de pagamento
   const openPartialPaymentModal = (order: Order) => {
     const customer = customers?.find(c => c.id === order.customerId);
@@ -336,6 +370,124 @@ export default function AdminCrediario() {
     setCustomerForTransfer(null);
   };
 
+  // Função para reverter pedido de completed para pending
+  const handleRevertOrderToPending = async (order: Order) => {
+    if (isProcessingRevert) return;
+    
+    const customer = customers?.find(c => c.id === order.customerId);
+    const customerName = customer?.name || 'Cliente não encontrado';
+    
+    // Definir dados da confirmação
+    setRevertConfirmation({
+      show: true,
+      order,
+      customerName
+    });
+  };
+  
+  const confirmRevert = async () => {
+    if (!revertConfirmation.order || isProcessingRevert) return;
+    
+    const { order, customerName } = revertConfirmation;
+    setIsProcessingRevert(true);
+    
+    try {
+      // 🔄 Primeiro, reverter o pedido
+      const orderResponse = await fetch(`/api/admin/orders/${order.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          status: 'pending',
+          paymentStatus: 'pending'
+        }),
+      });
+      
+      if (!orderResponse.ok) {
+        throw new Error('Erro ao reverter pedido');
+      }
+      
+      // 🏦 Segundo, reabrir a conta de crediário se estiver quitada
+      const account = creditAccounts?.find(a => a.customerId === order.customerId);
+      if (account) {
+        console.log('🔄 Reabrindo/ajustando conta de crediário...');
+        
+        const totalAmount = parseFloat(account.totalAmount?.toString() || '0');
+        const currentPaidAmount = parseFloat(account.paidAmount?.toString() || '0');
+        const currentRemainingAmount = parseFloat(account.remainingAmount?.toString() || '0');
+        const orderValue = parseFloat(order.total?.toString() || '0');
+        
+        // Se a conta estava quitada (remainingAmount = 0), precisamos reverter o pagamento
+        let newPaidAmount = currentPaidAmount;
+        let newRemainingAmount = currentRemainingAmount;
+        
+        if (currentRemainingAmount === 0) {
+          // Reverter o pagamento: diminuir paidAmount e aumentar remainingAmount
+          newPaidAmount = Math.max(0, currentPaidAmount - orderValue);
+          newRemainingAmount = orderValue;
+          
+          console.log('📊 Ajustando valores da conta:');
+          console.log(`   Valor pago: R$ ${currentPaidAmount.toFixed(2)} → R$ ${newPaidAmount.toFixed(2)}`);
+          console.log(`   Valor restante: R$ ${currentRemainingAmount.toFixed(2)} → R$ ${newRemainingAmount.toFixed(2)}`);
+        }
+        
+        const accountResponse = await fetch(`/api/admin/credit-accounts/${account.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            status: 'active',
+            paidAmount: newPaidAmount.toString(),
+            remainingAmount: newRemainingAmount.toString(),
+            closedAt: null
+          }),
+        });
+        
+        if (!accountResponse.ok) {
+          console.error('⚠️ Erro ao reabrir conta, mas pedido foi revertido');
+        } else {
+          console.log('✅ Conta de crediário reaberta e valores ajustados!');
+          console.log(`   Status: active`);
+          console.log(`   Valor restante: R$ ${newRemainingAmount.toFixed(2)}`);
+        }
+      }
+      
+      toast({
+        title: "✅ Pedido revertido com sucesso!",
+        description: `Pedido ${formatOrderNumber(order)} foi alterado para "Pendente". Cliente: ${customerName}`,
+        duration: 5000,
+      });
+      
+      // Mostrar mensagem de sucesso visual no topo da página
+      setLastRevertedOrder(formatOrderNumber(order));
+      setSuccessMessage(`Pedido ${formatOrderNumber(order)} (${customerName}) foi revertido para "Pendente" e a conta foi reaberta!`);
+      setShowSuccessMessage(true);
+      
+      // Esconder mensagem após 8 segundos
+      setTimeout(() => {
+        setShowSuccessMessage(false);
+      }, 8000);
+      
+      // Invalidar queries para atualizar a lista
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/orders"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
+      
+    } catch (error) {
+      console.error('Erro ao reverter pedido:', error);
+      toast({
+        title: "❌ Erro ao reverter pedido",
+        description: `Não foi possível reverter o pedido ${formatOrderNumber(order)}. Tente novamente em alguns momentos.`,
+        variant: "destructive",
+        duration: 6000,
+      });
+    } finally {
+      setIsProcessingRevert(false);
+      setRevertConfirmation({ show: false, order: null, customerName: '' });
+    }
+  };
+
   // Funções para abrir os modais
   const openDetailsModal = (order: Order) => {
     setSelectedOrderId(order.id);
@@ -399,6 +551,39 @@ export default function AdminCrediario() {
               </Button>
             </div>
           </div>
+          
+          {/* Mensagem de Sucesso Visual */}
+          {showSuccessMessage && (
+            <div className="mb-6 animate-in slide-in-from-top-2 duration-500">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-l-4 border-green-500 rounded-lg p-4 shadow-lg">
+                <div className="flex items-center">
+                  <div className="flex-shrink-0">
+                    <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                      <CheckCircle2 className="h-5 w-5 text-white" />
+                    </div>
+                  </div>
+                  <div className="ml-3 flex-1">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-medium text-green-800">
+                          😄 Reversão realizada com sucesso!
+                        </h3>
+                        <p className="mt-1 text-sm text-green-700">
+                          {successMessage}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowSuccessMessage(false)}
+                        className="text-green-500 hover:text-green-700 transition-colors"
+                      >
+                        <XCircle className="h-5 w-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Dashboard Principal - Métricas de Crediário */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -616,17 +801,49 @@ export default function AdminCrediario() {
                                       <DropdownMenuItem 
                                         onClick={() => openPartialPaymentModal(order)}
                                         className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                        disabled={isOrderPaidOff(order)}
                                       >
                                         <CreditCardIcon className="h-4 w-4 mr-2" />
                                         Pagamento Parcial
                                       </DropdownMenuItem>
-                                      <DropdownMenuItem 
-                                        onClick={() => openTotalPaymentModal(order)}
-                                        className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                      >
-                                        <BanknoteIcon className="h-4 w-4 mr-2" />
-                                        Pagamento Total
-                                      </DropdownMenuItem>
+                                      {!isOrderPaidOff(order) && (
+                                        <DropdownMenuItem 
+                                          onClick={() => openTotalPaymentModal(order)}
+                                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                        >
+                                          <BanknoteIcon className="h-4 w-4 mr-2" />
+                                          Pagamento Total
+                                        </DropdownMenuItem>
+                                      )}
+                                      {isOrderPaidOff(order) && (
+                                        <DropdownMenuItem disabled className="text-green-800 bg-green-50">
+                                          <CheckCircle2 className="h-4 w-4 mr-2" />
+                                          Pedido Quitado
+                                        </DropdownMenuItem>
+                                      )}
+                                      {/* Botão para voltar pedido concluido para pendente */}
+                                      {order.status === 'completed' && (
+                                        <DropdownMenuItem 
+                                          onClick={() => handleRevertOrderToPending(order)}
+                                          className="text-amber-600 hover:text-amber-700 hover:bg-amber-50 flex items-center transition-all duration-200"
+                                          disabled={isProcessingRevert}
+                                        >
+                                          {isProcessingRevert ? (
+                                            <>
+                                              <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-amber-600 border-t-transparent" />
+                                              <span className="text-amber-700 font-medium">Revertendo...</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <div className="relative mr-2">
+                                                <HistoryIcon className="h-4 w-4 text-amber-600" />
+                                                <div className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+                                              </div>
+                                              <span className="font-medium">🔄 Voltar para Pendente</span>
+                                            </>
+                                          )}
+                                        </DropdownMenuItem>
+                                      )}
                                       <DropdownMenuSeparator />
                                       <DropdownMenuLabel>Gerência</DropdownMenuLabel>
                                       <DropdownMenuItem 
@@ -869,6 +1086,87 @@ export default function AdminCrediario() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Modal de Confirmação de Reversão Visual */}
+      {revertConfirmation.show && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          {/* Overlay */}
+          <div 
+            className="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
+            onClick={() => setRevertConfirmation({ show: false, order: null, customerName: '' })}
+          />
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 animate-in zoom-in-95 duration-200">
+            {/* Header */}
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center">
+                <HistoryIcon className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  🔄 Reverter Pedido
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Confirme a operação abaixo
+                </p>
+              </div>
+            </div>
+            
+            {/* Content */}
+            <div className="mb-6">
+              <p className="text-gray-700 mb-4">
+                Tem certeza que deseja voltar o pedido <strong>{revertConfirmation.order ? formatOrderNumber(revertConfirmation.order) : ''}</strong> ({revertConfirmation.customerName}) para "Pendente"?
+              </p>
+              
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="flex items-start space-x-2">
+                  <div className="text-amber-600 mt-0.5">
+                    ⚠️
+                  </div>
+                  <div className="text-sm text-amber-800">
+                    <p className="font-medium mb-2">Esta ação irá:</p>
+                    <ul className="space-y-1">
+                      <li>• Alterar o status de "Concluído" → "Pendente"</li>
+                      <li>• Marcar pagamento como pendente</li>
+                      <li>• Reabrir a conta de crediário</li>
+                      <li>• Permitir novos pagamentos</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Actions */}
+            <div className="flex justify-end space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setRevertConfirmation({ show: false, order: null, customerName: '' })}
+                disabled={isProcessingRevert}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmRevert}
+                disabled={isProcessingRevert}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+              >
+                {isProcessingRevert ? (
+                  <>
+                    <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Revertendo...
+                  </>
+                ) : (
+                  <>
+                    <HistoryIcon className="h-4 w-4 mr-2" />
+                    Confirmar Reversão
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -132,6 +132,11 @@ export default function AdminFinancial() {
     enabled: isAuthenticated,
   });
 
+  const { data: creditAccounts, isLoading: creditAccountsLoading } = useQuery({
+    queryKey: ["/api/admin/credit-accounts"],
+    enabled: isAuthenticated,
+  });
+
   // Combinar dados de pedidos com clientes
   const orders = (rawOrders?.map(order => {
     const customer = customers?.find((c: Customer) => c.id === order.customerId);
@@ -146,9 +151,35 @@ export default function AdminFinancial() {
   // Cálculos detalhados por método de pagamento - MIGRADOS DOS PEDIDOS
   const allOrders = orders || [];
   
+  // Cálculos de transações manuais (declarando primeiro para uso posterior) 
+  const manualTransactions = transactions || [];
+  
+  // Crediário - USANDO CONTAS DE CREDIÁRIO (dados reais dos pagamentos)
+  const creditAccounts_data = Array.isArray(creditAccounts) ? creditAccounts : [];
+  const creditSales = creditAccounts_data.reduce((sum: number, account: any) => {
+    return sum + parseFloat(account.totalAmount?.toString() || '0');
+  }, 0);
+  
+  // Valores pagos e pendentes do crediário
+  const creditPaidAmount = creditAccounts_data.reduce((sum: number, account: any) => {
+    return sum + parseFloat(account.paidAmount?.toString() || '0');
+  }, 0);
+  
+  const creditPendingAmount = creditAccounts_data.reduce((sum: number, account: any) => {
+    return sum + parseFloat(account.remainingAmount?.toString() || '0');
+  }, 0);
+  
+  // PIX de pagamentos de crediário (usando dados reais das contas)
+  const pixFromCredit = creditPaidAmount; // Total já pago nas contas
+  
   // Total à vista (PIX + Dinheiro + Cartão) - TODOS os pedidos concluídos
   const pixOrders = allOrders.filter(order => order.paymentMethod === 'pix' && order.status === 'completed');
-  const pixSales = pixOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+  const pixFromOrders = pixOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
+  
+  // PIX de pagamentos de crediário já calculado acima baseado nas contas reais
+  
+  // Total PIX (pedidos + crediário)
+  const pixSales = pixFromOrders + pixFromCredit;
   
   const cashOrders = allOrders.filter(order => 
     (order.paymentMethod === 'cash' || order.paymentMethod === 'dinheiro') && 
@@ -161,15 +192,13 @@ export default function AdminFinancial() {
   
   const totalCashSales = pixSales + cashSales + cardSales;
   
-  // Crediário - TODOS os pedidos
+  // Pedidos de crediário para contagem
   const creditOrders = allOrders.filter(order => order.paymentMethod === 'credit');
-  const creditSales = creditOrders.reduce((sum, order) => sum + parseFloat(order.total?.toString() || '0'), 0);
   
   // Pendentes - TODOS os pedidos
   const pendingOrders = allOrders.filter(order => order.status === 'pending').length;
   
-  // Cálculos de transações manuais
-  const manualTransactions = transactions || [];
+  // Cálculos de entrada e saída manuais
   const totalManualIncome = manualTransactions
     .filter(t => t.type === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
@@ -444,6 +473,7 @@ export default function AdminFinancial() {
                     <p className="text-blue-600 text-sm font-medium mb-1">Crediário</p>
                     <p className="text-xl font-bold text-blue-700 mb-2">{formatCurrency(creditSales)}</p>
                     <p className="text-blue-500 text-xs">{creditOrders.length} pedidos</p>
+                    <p className="text-blue-500 text-xs mt-1">Pendente: {formatCurrency(creditPendingAmount)}</p>
                   </div>
                   <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
                     <Calendar className="h-5 w-5 text-blue-600" />

@@ -115,6 +115,15 @@ export default function PaymentDialog({ isOpen, onOpenChange, creditAccount, cus
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/consolidated"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/financial/sync-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      
+      // Forçar refetch do dashboard financeiro
+      setTimeout(() => {
+        queryClient.refetchQueries({ queryKey: ["/api/admin/financial"] });
+        queryClient.refetchQueries({ queryKey: ["/api/admin/dashboard"] });
+      }, 500);
       
       // Mensagem de sucesso personalizada
       if (willBePaidOff) {

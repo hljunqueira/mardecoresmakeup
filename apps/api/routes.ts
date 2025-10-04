@@ -1312,6 +1312,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('🔍 PUT /api/admin/credit-accounts - ID:', req.params.id);
       console.log('🔍 PUT /api/admin/credit-accounts - Dados recebidos:', JSON.stringify(req.body, null, 2));
       
+      // Validar se a conta existe primeiro
+      const existingAccount = await storage.getCreditAccount(req.params.id);
+      if (!existingAccount) {
+        console.log('❌ Conta de crediário não encontrada:', req.params.id);
+        return res.status(404).json({ message: "Credit account not found" });
+      }
+      
+      // Validar se há dados para atualizar
+      if (!req.body || Object.keys(req.body).length === 0) {
+        console.log('❌ Nenhum dado fornecido para atualização');
+        return res.status(400).json({ message: "No update data provided" });
+      }
+      
       // Converter nextPaymentDate de string para Date se necessário
       const updateData = { ...req.body };
       if (updateData.nextPaymentDate && typeof updateData.nextPaymentDate === 'string') {
@@ -1328,17 +1341,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log('🔄 Data convertida:', updateData.nextPaymentDate, 'ISO:', updateData.nextPaymentDate.toISOString());
       }
       
+      // Validar tipos de dados
+      if (updateData.paidAmount !== undefined) {
+        updateData.paidAmount = updateData.paidAmount.toString();
+      }
+      if (updateData.remainingAmount !== undefined) {
+        updateData.remainingAmount = updateData.remainingAmount.toString();
+      }
+      if (updateData.totalAmount !== undefined) {
+        updateData.totalAmount = updateData.totalAmount.toString();
+      }
+      
+      console.log('🔄 Dados processados para atualização:', JSON.stringify(updateData, null, 2));
+      
       const account = await storage.updateCreditAccount(req.params.id, updateData);
       if (!account) {
-        console.log('❌ Conta de crediário não encontrada:', req.params.id);
-        return res.status(404).json({ message: "Credit account not found" });
+        console.log('❌ Falha ao atualizar conta de crediário (retornou undefined):', req.params.id);
+        return res.status(500).json({ message: "Failed to update credit account - no result returned" });
       }
       
       console.log('✅ Conta de crediário atualizada com sucesso:', account.id);
       res.json(account);
     } catch (error) {
       console.error('❌ Erro ao atualizar conta de crediário:', error);
-      res.status(500).json({ message: "Failed to update credit account" });
+      console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'N/A');
+      res.status(500).json({ 
+        message: "Failed to update credit account",
+        error: error instanceof Error ? error.message : 'Unknown error',
+        details: 'Check server logs for more information'
+      });
     }
   });
 
@@ -1480,7 +1511,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const payment = await storage.createCreditPayment(req.body);
       console.log('✅ Pagamento registrado:', payment.id);
       
-      res.status(201).json(payment);
+      // 🎯 ATUALIZAR CONTA DE CREDIÁRIO E STATUS DO PEDIDO
+      console.log('🔄 Atualizando conta de crediário...');
+      
+      const currentPaidAmount = parseFloat(account.paidAmount?.toString() || '0');
+      const newPaidAmount = currentPaidAmount + paymentAmount;
+      const newRemainingAmount = Math.max(0, remainingAmount - paymentAmount);
+      const willBePaidOff = newRemainingAmount === 0;
+      
+      // Atualizar conta
+      await storage.updateCreditAccount(creditAccountId, {
+        paidAmount: newPaidAmount.toString(),
+        remainingAmount: newRemainingAmount.toString(),
+        status: willBePaidOff ? 'paid_off' : 'active',
+        ...(willBePaidOff && { closedAt: new Date() })
+      });
+      
+      // Se quitado, buscar e atualizar pedidos relacionados
+      if (willBePaidOff) {
+        console.log('🎉 Conta quitada! Buscando pedidos relacionados...');
+        
+        try {
+          const allOrders = await storage.getAllOrders();
+          const relatedOrders = allOrders.filter(order => 
+            order.customerId === account.customerId && 
+            order.paymentMethod === 'credit' && 
+            order.status === 'pending'
+          );
+          
+          console.log(`📋 Encontrados ${relatedOrders.length} pedidos pendentes para atualizar`);
+          
+          for (const order of relatedOrders) {
+            try {
+              await storage.updateOrder(order.id, {
+                status: 'completed',
+                paymentStatus: 'paid'
+              });
+              console.log(`✅ Pedido ${order.orderNumber} atualizado para completed`);
+            } catch (orderError) {
+              console.error(`❌ Erro ao atualizar pedido ${order.orderNumber}:`, orderError);
+            }
+          }
+          
+          // 📊 Log de auditoria para confirmar sincronização
+          console.log('📊 AUDITORIA: Sincronização de status concluída');
+          console.log(`   - Conta ${creditAccountId}: ${willBePaidOff ? 'QUITADA' : 'ATIVA'}`);
+          console.log(`   - Pedidos atualizados: ${relatedOrders.length}`);
+          console.log(`   - Valor total pago: R$ ${newPaidAmount.toFixed(2)}`);
+          
+        } catch (ordersError) {
+          console.error('❌ Erro ao buscar/atualizar pedidos relacionados:', ordersError);
+        }
+      } else {
+        console.log('🔄 Conta ainda tem saldo pendente:', {
+          restante: newRemainingAmount,
+          pago: newPaidAmount,
+          total: parseFloat(account.totalAmount?.toString() || '0')
+        });
+      }
+      
+      // 🔔 DISPARAR WEBHOOK DE PAGAMENTO DE CREDIÁRIO
+      console.log('🔔 Disparando webhook de pagamento de crediário via endpoint padrão...');
+      
+      const webhookResult = await financialWebhook.processCreditPayment(creditAccountId, paymentAmount);
+      
+      if (webhookResult.success) {
+        console.log('✅ Webhook de pagamento executado:', webhookResult.message);
+      } else {
+        console.error('❌ Erro no webhook de pagamento:', webhookResult.message);
+      }
+      
+      res.status(201).json({
+        ...payment,
+        webhook: {
+          success: webhookResult.success,
+          message: webhookResult.message,
+          transactionId: webhookResult.transactionId,
+          syncedData: webhookResult.syncedData
+        }
+      });
     } catch (error) {
       console.error('❌ Erro ao registrar pagamento:', error);
       res.status(500).json({ message: "Failed to create payment" });
@@ -1922,7 +2031,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ordersSample: orders.slice(0, 3).map(o => ({ id: o.id, status: o.status, paymentMethod: o.paymentMethod, total: o.total }))
       });
       
-      // ===== CONTAS DE CREDIÁRIO ATIVAS =====
+      // ===== CONTAS DE CREDIÁRIO (TODAS AS CONTAS PARA CÁLCULO DE RECEITA) =====
+      const allCreditAccounts = creditAccounts; // Incluir todas as contas, não só ativas
       const activeCreditAccounts = creditAccounts.filter(ca => {
         if (!includeCreditAccounts) return false;
         return ca.status === 'active';
@@ -1946,8 +2056,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         paymentMethods: filteredOrders.map(o => o.paymentMethod)
       });
       
-      // Pagamentos recebidos do crediário (aproximação)
-      const creditRevenue = activeCreditAccounts
+      // Pagamentos recebidos do crediário (TODAS as contas, incluindo quitadas)
+      const creditRevenue = allCreditAccounts
         .reduce((sum, ca) => sum + parseFloat(ca.paidAmount?.toString() || '0'), 0);
       
       // Total de receitas
@@ -1966,7 +2076,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .filter(t => t.type === 'income' && t.status === 'pending')
         .reduce((sum, t) => sum + parseFloat(t.amount), 0);
       
-      const creditAccountsBalance = activeCreditAccounts
+      const creditAccountsBalance = allCreditAccounts
+        .filter(ca => ca.status === 'active') // Apenas contas ativas têm saldo pendente
         .reduce((sum, ca) => sum + parseFloat(ca.remainingAmount?.toString() || '0'), 0);
       
       // ===== CONTAS A PAGAR =====

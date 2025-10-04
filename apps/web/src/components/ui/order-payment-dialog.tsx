@@ -135,6 +135,7 @@ export default function OrderPaymentDialog({
       const response = await apiRequest("POST", "/api/admin/credit-accounts", accountData);
       const newAccount = await response.json();
       
+      console.log('💳 Nova conta de crediário criada:', newAccount);
       setCreditAccount(newAccount);
       
       // Invalidar queries para atualizar a lista
@@ -169,7 +170,7 @@ export default function OrderPaymentDialog({
       const newRemainingAmount = Math.max(0, currentRemainingAmount - paymentData.amount);
       const willBePaidOff = newRemainingAmount === 0;
       
-      // 1. Registrar o pagamento
+      // 1. Registrar o pagamento (o backend já faz as atualizações automaticamente)
       const paymentResponse = await apiRequest("POST", "/api/admin/credit-payments", {
         creditAccountId: creditAccount.id,
         amount: paymentData.amount,
@@ -178,42 +179,13 @@ export default function OrderPaymentDialog({
         status: 'completed'
       });
       
-      // 2. Atualizar a conta de crediário
-      const updatedAccountData = {
-        paidAmount: newPaidAmount,
-        remainingAmount: newRemainingAmount,
-        status: willBePaidOff ? 'paid_off' : 'active',
-        ...(willBePaidOff && { closedAt: new Date().toISOString() })
-      };
+      console.log('✅ Pagamento registrado, backend irá sincronizar automaticamente');
       
-      const accountResponse = await apiRequest("PUT", `/api/admin/credit-accounts/${creditAccount.id}`, updatedAccountData);
-      
-      // 3. Se quitado, atualizar status do pedido
-      if (willBePaidOff) {
-        await apiRequest("PUT", `/api/admin/orders/${order.id}`, {
-          status: 'completed',
-          paymentStatus: 'paid'
-        });
-        
-        // Finalizar reservas automaticamente
-        try {
-          await apiRequest("POST", `/api/admin/credit-accounts/${creditAccount.id}/finalize-reservations`, {});
-        } catch (finalizationError) {
-          console.error('Erro na finalização automática:', finalizationError);
-        }
-      }
-      
-      // 4. Atualizar o totalSpent do cliente
-      const currentTotalSpent = parseFloat(customer.totalSpent?.toString() || "0");
-      const newTotalSpent = currentTotalSpent + paymentData.amount;
-      
-      await apiRequest("PUT", `/api/admin/customers/${customer.id}`, {
-        totalSpent: newTotalSpent.toString()
-      });
-      
-      return { payment: paymentResponse, account: accountResponse, willBePaidOff };
+      return { payment: paymentResponse, willBePaidOff };
     },
     onSuccess: (data) => {
+      console.log('✅ Pagamento processado com sucesso:', data);
+      
       // Invalidar todas as queries relacionadas
       queryClient.invalidateQueries({ queryKey: ["/api/admin/credit-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/admin/customers"] });
@@ -223,7 +195,7 @@ export default function OrderPaymentDialog({
       
       // Mensagem de sucesso personalizada
       const message = data.willBePaidOff 
-        ? "Pedido quitado com sucesso! Estoque atualizado automaticamente."
+        ? "Pedido quitado com sucesso! Status atualizado automaticamente."
         : "Pagamento registrado com sucesso!";
         
       toast({
@@ -261,16 +233,32 @@ export default function OrderPaymentDialog({
       return;
     }
     
-    if (creditAccount) {
-      const currentRemainingAmount = Math.max(0, totalAmount - paidAmount);
-      if (paymentValue > currentRemainingAmount) {
-        toast({
-          title: "Valor excede pendência",
-          description: `O valor do pagamento (${formatCurrency(paymentValue)}) não pode ser maior que o valor pendente (${formatCurrency(currentRemainingAmount)})`,
-          variant: "destructive",
-        });
-        return;
-      }
+    if (remainingAmount <= 0 && order.status === 'completed') {
+      toast({
+        title: "Pedido já quitado",
+        description: "Este pedido já foi totalmente quitado.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // 🔄 Se o pedido está pendente mas não há valor restante, algo está errado
+    if (remainingAmount <= 0 && order.status === 'pending') {
+      toast({
+        title: "Erro de sincronização",
+        description: "Pedido pendente mas sem valor restante. Recarregue a página.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (paymentValue > remainingAmount) {
+      toast({
+        title: "Valor excede pendência",
+        description: `O valor do pagamento (${formatCurrency(paymentValue)}) não pode ser maior que o valor pendente (${formatCurrency(remainingAmount)})`,
+        variant: "destructive",
+      });
+      return;
     }
     
     processPaymentMutation.mutate({
@@ -301,6 +289,10 @@ export default function OrderPaymentDialog({
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
   const paymentValue = Math.max(0, parseFloat(paymentAmount) || 0);
   const willBePaidOff = paymentValue >= remainingAmount && paymentValue > 0;
+  
+  // 🔄 Verificar se há realmente valor pendente
+  const hasPendingAmount = remainingAmount > 0 && order.status === 'pending';
+  const isOrderActuallyPaidOff = remainingAmount <= 0 && order.status === 'completed';
   
   // Calcular valores após o pagamento
   const amountAfterPayment = Math.max(0, remainingAmount - paymentValue);
@@ -401,13 +393,33 @@ export default function OrderPaymentDialog({
               <Label htmlFor="paymentAmount" className="text-sm font-medium text-gray-700">
                 Valor do Pagamento *
               </Label>
+              
+              {/* Alerta quando pedido já quitado */}
+              {isOrderActuallyPaidOff && (
+                <Alert className="border-green-200 bg-green-50 mb-4">
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                  <AlertDescription className="text-green-800">
+                    <strong>Pedido já quitado!</strong> Este pedido não possui valor pendente para pagamento.
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {/* Alerta quando pedido pendente com valores corretos */}
+              {hasPendingAmount && (
+                <Alert className="border-blue-200 bg-blue-50 mb-4">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-blue-800">
+                    <strong>Pagamento disponível:</strong> Você pode pagar até {formatCurrency(remainingAmount)}.
+                  </AlertDescription>
+                </Alert>
+              )}
               <div className="relative">
                 <Input
                   id="paymentAmount"
                   type="number"
                   step="0.01"
-                  min="0.01"
-                  max={remainingAmount}
+                  min={hasPendingAmount ? "0.01" : "0"}
+                  max={hasPendingAmount ? remainingAmount : undefined}
                   value={paymentAmount}
                   onChange={(e) => {
                     const value = e.target.value;
@@ -416,6 +428,7 @@ export default function OrderPaymentDialog({
                   placeholder="0,00"
                   className="pl-8 text-lg font-medium border-2 border-gray-200 focus:border-blue-500 transition-colors"
                   required
+                  disabled={!hasPendingAmount}
                 />
                 <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">
                   R$
@@ -423,7 +436,7 @@ export default function OrderPaymentDialog({
               </div>
               
               {/* Sugestões de valores rápidos */}
-              {paymentType === 'partial' && remainingAmount > 0 && (
+              {paymentType === 'partial' && hasPendingAmount && (
                 <div className="flex flex-wrap gap-2 mt-2">
                   <span className="text-xs text-gray-600">Sugestões:</span>
                   {[remainingAmount * 0.25, remainingAmount * 0.5, remainingAmount * 0.75, remainingAmount].map((suggestion, index) => {
@@ -533,7 +546,7 @@ export default function OrderPaymentDialog({
                     ? 'bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800' 
                     : 'bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800'
                 } text-white`}
-                disabled={isProcessing || !paymentAmount || paymentValue <= 0 || (paymentValue > remainingAmount && remainingAmount > 0)}
+                disabled={isProcessing || remainingAmount <= 0 || !paymentAmount || paymentValue <= 0}
               >
                 {isProcessing ? "Processando..." : 
                   `${paymentType === 'total' ? 'Quitar Pedido' : 'Registrar Pagamento'} ${formatCurrency(paymentValue)}`

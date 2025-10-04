@@ -824,30 +824,6 @@ export default function AdminOrders() {
                               {order.status === 'pending' && (
                                 <>
                                   <Button
-                                    size="sm"
-                                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                                    onClick={() => {
-                                      completeOrder(order.id);
-                                      // Após concluir, mostrar automaticamente o modal do WhatsApp
-                                      setTimeout(() => {
-                                        openWhatsAppDialog(order);
-                                      }, 1500);
-                                    }}
-                                    disabled={isCompleting}
-                                  >
-                                    {isCompleting ? (
-                                      <>
-                                        <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                                        Processando...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle2 className="h-4 w-4 mr-1" />
-                                        Confirmar Crediário
-                                      </>
-                                    )}
-                                  </Button>
-                                  <Button
                                     variant="outline"
                                     size="sm"
                                     className="border-red-300 text-red-700 hover:bg-red-50"
